@@ -7,5 +7,6 @@ pub trait PipelineTrait: Send + Sync {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
+        source: &str,
     ) -> Result<(Option<Uuid>, Vec<serde_json::Value>)>;
 }

@@ -1,3 +1,3 @@
-use crate::core::traits::{exporter::export_writer::ExportWriter, strategy::registry::Registry};
+use crate::core::traits::{strategy::registry::Registry, writter::writter_trait::WritterTrait};
 
-pub type ExportRegistry = Registry<dyn ExportWriter>;
+pub type ExportRegistry = Registry<dyn WritterTrait>;

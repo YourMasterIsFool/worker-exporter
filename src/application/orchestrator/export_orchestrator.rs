@@ -1,88 +1,76 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use anyhow::Ok;
+use tracing::instrument;
 
 use crate::{
-    app_state::{self, AppState},
+    app_state::AppState,
     application::{
-        pipelines::{export_pipeline::ExportPipeline, ingestion_pipeline::IngestionPipeline},
-        runner::ingestion_runner::IngestionRunner,
+        load::LoadRegistry, pipelines::pipeline_registry::PipelineRegistry,
+        runner::loader_runner::LoaderRunner, writter::WritterRegistry,
+    },
+    core::traits::{
+        orchestrator::{Orchestrator, OrchestratorJob},
+        pipeline::pipeline_trait::PipelineTrait,
+        writter::writter_trait::WritterTrait,
+    },
+    domain::logging::{
+        entity::{LoggingEntity, LoggingStatus, LoggingType},
+        repo::LoggingRepo,
     },
 };
 
-#[derive(Serialize, Debug, Deserialize)]
-pub struct ExportFields {
-    label: String,
-    source: String,
-}
-
-#[derive(Serialize, Debug, Deserialize)]
-
-pub struct ExportJob {
-    pub(crate) tenant_id: String,
-    pub(crate) limit: i64,
-    pub(crate) source: String,
-    pub(crate) fields: Vec<ExportFields>,
-}
 pub struct ExportOrchestrator {
-    ingestion_pipeline: Arc<IngestionPipeline>,
-    export_pipeline: Arc<ExportPipeline>,
-    ingestion_runner: Arc<IngestionRunner>,
-    app_state: Arc<AppState>,
+    pub pipeline: Arc<PipelineRegistry>,
+    pub writter: Arc<WritterRegistry>,
+    pub logging: Arc<dyn LoggingRepo>,
+    pub load: Arc<LoadRegistry>,
 }
 
-impl ExportOrchestrator {
-    fn new(
-        ingestion_pipeline: Arc<IngestionPipeline>,
-        export_pipeline: Arc<ExportPipeline>,
-        ingestion_runner: Arc<IngestionRunner>,
-        app_state: Arc<AppState>,
-    ) -> Self {
-        Self {
-            ingestion_pipeline,
-            export_pipeline,
-            app_state,
-            ingestion_runner,
+#[async_trait::async_trait]
+impl Orchestrator for ExportOrchestrator {
+    #[instrument(skip(self, job), fields(msg_id = %msg_id, tenant_id = %job.tenant_id))]
+    async fn run(&self, job: &OrchestratorJob, msg_id: &str) -> anyhow::Result<()> {
+        // just example
+        let ingestion_pipeline = self.pipeline.get("ingestion")?;
+        let loader = self.load.get("tenants")?;
+
+        let logging_entity = LoggingEntity {
+            id: None,
+            logging_type: LoggingType::Export.to_string(),
+            completed_at: None,
+            download_url: None,
+            status: LoggingStatus::Processing.to_string(),
+            error: None,
+            additional_info: None,
+            processed_count: 0,
+            current_chunk: 0,
+            total_chunk: 0,
+            cursor: None,
+            stream_id: msg_id.to_string().clone(),
+        };
+
+        // create logging first
+        self.logging.store(logging_entity).await?;
+
+        // loader first data
+        if let Err(err) = LoaderRunner::run(
+            ingestion_pipeline.as_ref(),
+            loader.as_ref(),
+            self.logging.as_ref(),
+            msg_id,
+        )
+        .await
+        {
+            self.logging
+                .updateError(msg_id, Some(err.to_string()))
+                .await?;
+
+            return Err(err);
         }
-    }
 
-    async fn run(&self, export_job: &ExportJob) -> Result<()> {
-        let Ok(source) = self.app_state.source_registry.get(&export_job.source) else {
-            warn!(
-                "Failed to get source for '{}', skipping job...",
-                export_job.source
-            );
-            return Ok(());
-        };
-        let Ok(loader) = self
-            .app_state
-            .incremental_load_registry
-            .get(&export_job.source)
-        else {
-            warn!(
-                "Failed to get loader for '{}', skipping job...",
-                export_job.source
-            );
-            return Ok(());
-        };
-
-        // run ingestion
-
-        let run_ingestion = IngestionPipeline {
-            source: source.clone(),
-        };
-
-        match IngestionRunner::run(&run_ingestion, &loader).await {
-            std::result::Result::Ok((total_affected)) => {
-                info!(
-                    "running ingestion runner {} total affected {}",
-                    export_job.tenant_id, total_affected
-                )
-            }
-            Err(err) => warn!("failed ingestion runner"),
-        }
+        // export csv first
+        //
 
         Ok(())
     }

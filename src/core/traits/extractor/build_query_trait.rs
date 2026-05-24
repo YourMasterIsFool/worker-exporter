@@ -1,4 +1,4 @@
-pub trait BuildQueryTrait<T> {
-    fn query(&self) -> &'static str;
+pub trait BuildTableTrait<T> {
     fn table(&self) -> T;
+    fn columns(&self) -> &'static [&'static str];
 }

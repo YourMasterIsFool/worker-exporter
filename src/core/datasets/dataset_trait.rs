@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::clone::Clone;
 
-use crate::core::traits::exporter::export_writer::ExportRow;
+use crate::core::traits::writter::writter_trait::ExportRow;
 
 #[async_trait::async_trait]
 pub trait DatasetTrait {
@@ -10,4 +10,13 @@ pub trait DatasetTrait {
         watermark: Option<i64>,
         limit: i64,
     ) -> Result<(Vec<ExportRow>, Option<i64>)>;
+}
+
+#[async_trait::async_trait]
+pub trait Dataset {
+    async fn fetch_batch(
+        &self,
+        cursor: Option<String>,
+        limit: i64,
+    ) -> Result<(Vec<ExportRow>, Option<String>)>;
 }

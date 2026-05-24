@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
 use anyhow::{Ok, Result};
+use sqlx::QueryBuilder;
+use tracing::info;
 
 use crate::{
-    core::traits::load::{IncrementalLoad, LoadEnum, UpsertLoader},
+    core::traits::load::{IncrementalLoad, LoadEnum, LoaderWarehouse},
+    domain::snapshots::organization::tenant_snapshot::TenantSnapshotQueryRepository,
     infrastructure::warehouse::{
-        snapshots::tenants::model::TenantSnapshotModel, warehouse_client::WarehouseClient,
+        snapshots::organization::tenants::model::TenantSnapshotModel,
+        warehouse_client::WarehouseClient,
     },
     utils::build_query,
 };
@@ -14,9 +18,9 @@ pub struct TenantWarehouseSnapshot {
     pub client: Arc<WarehouseClient>,
 }
 
-impl UpsertLoader for TenantWarehouseSnapshot {
+impl LoaderWarehouse for TenantWarehouseSnapshot {
     fn table(&self) -> &'static str {
-        "warehouse.tenants"
+        "tenant_snapshots"
     }
 
     fn columns(&self) -> &'static [&'static str] {
@@ -27,15 +31,16 @@ impl UpsertLoader for TenantWarehouseSnapshot {
         &["tenant_id"]
     }
 }
+
+// buat loader
+
 #[async_trait::async_trait]
 impl IncrementalLoad for TenantWarehouseSnapshot {
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64> {
         if rows.is_empty() {
             return Ok(0);
         }
-
         // mapping into snapshotmodel
-
         let snapshots: Vec<TenantSnapshotModel> = rows
             .iter()
             .map(|row| TenantSnapshotModel::try_from(row))
@@ -43,6 +48,8 @@ impl IncrementalLoad for TenantWarehouseSnapshot {
 
         let query = build_query(self, LoadEnum::Upsert);
 
+        info!("snapshot {:?}", snapshots);
+        info!("snapshot query {}", query);
         let mut tx = self.client.pool.begin().await?;
 
         for snapshot in &snapshots {

@@ -1,2 +1,4 @@
 pub mod datasets;
-pub mod tenants;
+pub mod ingestion;
+pub mod logging;
+pub mod snapshots;

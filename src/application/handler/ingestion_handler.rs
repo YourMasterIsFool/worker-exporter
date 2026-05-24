@@ -1,17 +1,20 @@
 use std::sync::Arc;
 
 use anyhow::{Ok, Result};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     app_state::AppState,
     application::{
-        pipelines::ingestion_pipeline::IngestionPipeline, runner::ingestion_runner::IngestionRunner,
+        pipelines::ingestion_pipeline::IngestionPipeline, runner::loader_runner::LoaderRunner,
     },
     core::traits::{
         consumer::{Consumer, ConsumerMessage},
         handler::{JobHandler, JobStruct},
+        orchestrator::{Orchestrator, OrchestratorJob},
     },
+    domain::logging::entity::{LoggingEntity, LoggingStatus, LoggingType},
+    errors::AppError,
 };
 
 pub struct IngestionHandler {
@@ -19,6 +22,22 @@ pub struct IngestionHandler {
     pub app_state: Arc<AppState>,
 }
 
+impl IngestionHandler {
+    async fn build_orchestrator(
+        &self,
+        orchestrator_job: &OrchestratorJob,
+        msg: &str,
+    ) -> Result<()> {
+        let orchestrator = self
+            .app_state
+            .orchestrator_registry
+            .get(&orchestrator_job.orchestrator_type)?;
+
+        orchestrator.run(orchestrator_job, msg).await?;
+
+        Ok(())
+    }
+}
 #[async_trait::async_trait]
 impl JobHandler for IngestionHandler {
     async fn handler(&self) -> Result<()> {
@@ -30,27 +49,35 @@ impl JobHandler for IngestionHandler {
             }
 
             for msg in messages {
-                let job: JobStruct = serde_json::from_str(&msg.payload)?;
-                info!("payload {:?}", msg);
-                let source = match self.app_state.source_registry.get(&job.source) {
-                    anyhow::Result::Ok(source) => source,
-                    Err(err) => {
-                        warn!("Failed to get source: {}", err);
-                        continue;
+                let job = match serde_json::from_str::<JobStruct>(&msg.payload) {
+                    Result::Ok(data) => Some(data),
+                    Err(e) => {
+                        error!(msg_id = %msg.id, error = %e, "Invalid payload, skipping");
+                        None // Kita tandai sebagai tidak valid
                     }
                 };
-                let ingestion_pipeline = IngestionPipeline { source: source };
-                let anyhow::Result::Ok(loader) =
-                    self.app_state.incremental_load_registry.get(&job.source)
-                else {
-                    warn!(
-                        "Gagal mengambil loader untuk '{}', melewati job...",
-                        job.source
-                    );
-                    continue;
-                };
 
-                IngestionRunner::run(&ingestion_pipeline, &loader).await?;
+                if let Some(job) = job {
+                    let orchestrator_job = OrchestratorJob {
+                        limit: 100,
+                        source: job.source.clone(),
+                        tenant_id: job.tenant.clone().unwrap_or_default(),
+                        orchestrator_type: "export".into(),
+                    };
+
+                    info!("debug orchestrator job {:?}", orchestrator_job.clone());
+
+                    // jika ada error di configuration orchestrator maka orchestrator tidak akan dijalankan
+                    // dan akan memunculkan log lalu consumer di ack
+
+                    match self.build_orchestrator(&orchestrator_job, &msg.id).await {
+                        Result::Ok(_) => {}
+                        Err(err) => {
+                            error!("{err}");
+                        }
+                    }
+                }
+
                 self.consumer.ack(&msg.id).await?;
             }
         }

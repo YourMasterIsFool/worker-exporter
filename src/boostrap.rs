@@ -4,30 +4,32 @@ use tracing_subscriber::{fmt, EnvFilter};
 use crate::{
     app_state::AppState,
     application::{
-        handler::ingestion_handler::IngestionHandler,
-        load::{build_load_registry, LoadRegistry},
-        source::source_registry::{build_source_registry, SourceRegistry},
+        handler::ingestion_handler::IngestionHandler, load::build_load_registry,
+        orchestrator::orchestrator_registry::build_orchestrator_registry,
+        pipelines::pipeline_registry::build_pipeline_registry,
+        source::source_registry::build_source_registry, writter::build_writter_registry,
     },
     core::{
         config::{config::Config, database_manager::DatabaseManager},
         traits::{
             consumer::{Consumer, ConsumerMessage},
             handler::JobHandler,
+            orchestrator,
         },
     },
     infrastructure::{
         ingestion::organization::organization_postgres_client::OrganizatinPostgresClient,
         redis::RedisStreamConsumer,
-        warehouse::{
-            snapshots::tenants::upsert::TenantWarehouseSnapshot, warehouse_client::WarehouseClient,
-        },
+        warehouse::{logging_warehouse::LoggingWarehouse, warehouse_client::WarehouseClient},
     },
+    repo::WarehouseRepo,
 };
 use redis::{aio::ConnectionManager, Client};
 use std::sync::Arc;
 
 pub fn init_logger() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,sqlx=debug"));
 
     fmt().with_env_filter(filter).with_target(false).init();
 }
@@ -54,17 +56,37 @@ pub async fn bootstrap() -> anyhow::Result<()> {
         database_manager.organization.clone(),
     ));
 
-    let incremental_load_registry = build_load_registry(warehouse_client.clone());
+    let incremental_load_registry = Arc::new(build_load_registry(warehouse_client.clone()));
 
     // 4. source registry
-    let source_registry = build_source_registry(organization_client.clone());
+    let source_registry = Arc::new(build_source_registry(organization_client.clone()));
+    let writter_registry = Arc::new(build_writter_registry());
+    let pipeline_registry = Arc::new(build_pipeline_registry(
+        incremental_load_registry.clone(),
+        source_registry.clone(),
+    ));
+
+    let warehouse_logging = Arc::new(LoggingWarehouse {
+        client: warehouse_client.clone(),
+    });
+    let orchestrator = Arc::new(build_orchestrator_registry(
+        writter_registry.clone(),
+        pipeline_registry.clone(),
+        incremental_load_registry.clone(),
+        warehouse_logging.clone(),
+    ));
+
+    // repo
+    let warehouse_repo = WarehouseRepo::new(warehouse_client.clone());
 
     // 5. app state
     let state = Arc::new(AppState {
         warehouse_client,
         organization_db: organization_client,
-        source_registry: Arc::new(source_registry),
-        incremental_load_registry: Arc::new(incremental_load_registry),
+        source_registry: source_registry,
+        incremental_load_registry: incremental_load_registry,
+        warehouse_repo: Arc::new(warehouse_repo),
+        orchestrator_registry: orchestrator,
     });
 
     // 6. redis

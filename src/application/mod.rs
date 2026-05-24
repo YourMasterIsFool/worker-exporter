@@ -1,3 +1,4 @@
+pub mod errors;
 pub mod exporter;
 pub mod factory;
 pub mod handler;
@@ -6,3 +7,4 @@ pub mod orchestrator;
 pub mod pipelines;
 pub mod runner;
 pub mod source;
+pub mod writter;

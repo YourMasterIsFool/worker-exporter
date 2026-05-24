@@ -2,7 +2,10 @@ use std::fmt::format;
 
 use anyhow::{Context, Result};
 
-use crate::core::traits::load::{LoadEnum, UpsertLoader};
+use crate::core::traits::{
+    extractor::incremental_source::IncrementalSource,
+    load::{LoadEnum, LoaderWarehouse},
+};
 
 pub fn reformated_value(key: &str, value: &serde_json::Value) -> Result<String> {
     let val = value[key]
@@ -13,14 +16,14 @@ pub fn reformated_value(key: &str, value: &serde_json::Value) -> Result<String> 
     Ok(val)
 }
 
-pub fn build_query<T: UpsertLoader>(loader: &T, mode: LoadEnum) -> String {
+pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: LoadEnum) -> String {
     let table = loader.table();
     let columns = loader.columns().join(",");
     let placeholders = loader
         .columns()
         .iter()
         .enumerate()
-        .map(|(i, _)| format!("{}", i + 1))
+        .map(|(i, _)| format!("${}", i + 1))
         .collect::<Vec<_>>()
         .join(",");
 
@@ -37,6 +40,24 @@ pub fn build_query<T: UpsertLoader>(loader: &T, mode: LoadEnum) -> String {
                 "INSERT INTO {} ({}) VALUES ({}) ",
                 table, columns, placeholders
             )
+        }
+        LoadEnum::Update(updated_columns) => {
+            let updated_columns = updated_columns.join(",");
+
+            format!("UPDATE {} SET {} WHERE 1=1  ", table, updated_columns)
+        }
+        LoadEnum::Select(where_fields) => {
+            let where_clause = where_fields
+                .as_ref()
+                .map(|fields| {
+                    fields
+                        .iter()
+                        .map(|field| format!("{} {} {}", field.field, field.operator, field.value))
+                        .collect::<Vec<_>>()
+                        .join(" AND ")
+                })
+                .unwrap_or_default();
+            format!("SELECT {} FROM {} WHERE {}", columns, table, where_clause)
         }
     }
 }

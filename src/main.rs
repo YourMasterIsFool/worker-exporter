@@ -8,7 +8,9 @@ mod boostrap;
 mod config;
 mod core;
 mod domain;
+mod errors;
 mod infrastructure;
+mod repo;
 mod utils;
 #[tokio::main]
 async fn main() -> Result<()> {

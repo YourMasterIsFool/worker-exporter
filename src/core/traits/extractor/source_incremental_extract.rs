@@ -2,7 +2,7 @@ use ::anyhow::Result;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
-pub trait IncrementalExtract {
+pub trait SourceIncrementalExtract {
     async fn extract(
         &self,
         cursor: Option<Uuid>,

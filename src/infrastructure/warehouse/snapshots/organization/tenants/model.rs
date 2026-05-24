@@ -1,8 +1,15 @@
 use anyhow::{Context, Ok};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use s3::utils::now_utc;
 use serde::Serialize;
 use sqlx::prelude::FromRow;
+use tracing::info;
 
-use crate::utils::reformated_value;
+use crate::{
+    core::traits::writter::writter_trait::ExportRow,
+    domain::snapshots::organization::tenant_snapshot::TenantSnapshot, errors::AppError,
+    utils::reformated_value,
+};
 
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct TenantSnapshotModel {
@@ -10,7 +17,6 @@ pub struct TenantSnapshotModel {
     pub tenant_name: String,
     pub tenant_code: String,
     pub id: Option<String>,
-    pub created_at: String,
 }
 
 impl TryFrom<&serde_json::Value> for TenantSnapshotModel {
@@ -20,8 +26,18 @@ impl TryFrom<&serde_json::Value> for TenantSnapshotModel {
             tenant_name: reformated_value("tenant_name", value)?,
             tenant_code: reformated_value("tenant_code", value)?,
             id: None,
-            created_at: reformated_value("created_at", value)?,
             tenant_id: reformated_value("id", value)?,
         })
+    }
+}
+
+impl From<&TenantSnapshotModel> for TenantSnapshot {
+    fn from(value: &TenantSnapshotModel) -> Self {
+        Self {
+            tenant_id: value.tenant_id.clone(),
+            tenant_name: value.tenant_name.clone(),
+            tenant_code: value.tenant_code.clone(),
+            id: value.id.clone(),
+        }
     }
 }

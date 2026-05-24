@@ -1,0 +1,10 @@
+[env]
+WAREHOUSE_DATABASE_URL = { script = ["grep '^WAREHOUSE_DATABASE_URL=' .env | cut -d '=' -f2-"] }
+
+[tasks.migrate-main]
+description = "Run warehouse migrations"
+script = ["DATABASE_URL=${WAREHOUSE_DATABASE_URL} sqlx migrate run"]
+
+[tasks.migrate-main-revert]
+description = "Revert last warehouse migration"
+script = ["DATABASE_URL=${WAREHOUSE_DATABASE_URL} sqlx migrate revert"]
