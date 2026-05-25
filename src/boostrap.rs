@@ -4,10 +4,13 @@ use tracing_subscriber::{fmt, EnvFilter};
 use crate::{
     app_state::AppState,
     application::{
-        handler::ingestion_handler::IngestionHandler, load::build_load_registry,
+        dataset::{build_dataset_registry, DatasetRegistry},
+        handler::ingestion_handler::IngestionHandler,
+        load::build_load_registry,
         orchestrator::orchestrator_registry::build_orchestrator_registry,
         pipelines::pipeline_registry::build_pipeline_registry,
-        source::source_registry::build_source_registry, writter::build_writter_registry,
+        source::source_registry::build_source_registry,
+        writter::build_writter_registry,
     },
     core::{
         config::{config::Config, database_manager::DatabaseManager},
@@ -65,6 +68,7 @@ pub async fn bootstrap() -> anyhow::Result<()> {
         incremental_load_registry.clone(),
         source_registry.clone(),
     ));
+    let dataset_registry = Arc::new(build_dataset_registry(warehouse_client.clone()));
 
     let warehouse_logging = Arc::new(LoggingWarehouse {
         client: warehouse_client.clone(),
@@ -74,6 +78,7 @@ pub async fn bootstrap() -> anyhow::Result<()> {
         pipeline_registry.clone(),
         incremental_load_registry.clone(),
         warehouse_logging.clone(),
+        dataset_registry.clone(),
     ));
 
     // repo

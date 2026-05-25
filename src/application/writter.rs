@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{collections::HashMap, f64::consts::E, sync::Arc};
+
+use anyhow::{Error, Ok};
+use tracing::warn;
 
 use crate::{
     app_state::{self, AppState},
@@ -6,9 +9,47 @@ use crate::{
     infrastructure::exporter::csv_exporter::CsvExporter,
 };
 
-pub type WritterRegistry = Registry<dyn WritterTrait>;
+// pub type WritterRegistry = Registry<dyn WritterTrait>;
+// pub fn build_writter_registry() -> WritterRegistry {
+//     let mut registry = WritterRegistry::new();
+//     registry.register("csv", || Box::new(CsvExporter::new()));
+//     registry
+// }
+//
+
+pub type WritterFactory = Box<dyn Fn() -> Box<dyn WritterTrait> + Send + Sync>;
+pub struct WritterRegistry {
+    pub maps: HashMap<String, WritterFactory>,
+}
+
+impl WritterRegistry {
+    pub fn new() -> Self {
+        let maps = HashMap::new();
+        Self { maps }
+    }
+
+    pub fn get(&self, key: &str) -> anyhow::Result<Box<dyn WritterTrait>> {
+        if let Some(writter) = self.maps.get(key) {
+            Ok(writter())
+        } else {
+            warn!("registry not found");
+
+            return Err(anyhow::anyhow!("writter not found"));
+        }
+    }
+    pub fn register<F>(&mut self, name: &str, writter: F) -> anyhow::Result<()>
+    where
+        F: Fn() -> Box<dyn WritterTrait> + Send + Sync + 'static,
+    {
+        if self.maps.contains_key(name) {
+            return Err(anyhow::anyhow!("writter already registered"));
+        }
+        self.maps.insert(name.to_string(), Box::new(writter));
+        Ok(())
+    }
+}
 pub fn build_writter_registry() -> WritterRegistry {
     let mut registry = WritterRegistry::new();
-    registry.register("csv", Arc::new(CsvExporter::new()));
+    registry.register("csv", || Box::new(CsvExporter::new()));
     registry
 }

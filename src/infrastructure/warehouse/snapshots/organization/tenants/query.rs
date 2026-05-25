@@ -1,8 +1,8 @@
-use std::{result, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::{Ok, Result};
-use sqlx::{postgres::PgPoolOptions, PgPool, QueryBuilder};
-use tracing_subscriber::filter;
+use anyhow::Result;
+use sqlx::QueryBuilder;
+use tracing::info;
 
 use crate::{
     core::traits::{
@@ -10,19 +10,15 @@ use crate::{
             build_query_trait::BuildTableTrait,
             incremental_source::{IncrementalSource, WhereField},
         },
-        load::{LoadEnum, LoaderWarehouse},
+        load::LoaderWarehouse,
     },
     domain::snapshots::organization::tenant_snapshot::{
         TenantSnapshot, TenantSnapshotQueryRepository,
     },
-    infrastructure::{
-        ingestion::organization::enums::OrganizationTableEnum,
-        warehouse::{
-            snapshots::organization::tenants::model::TenantSnapshotModel,
-            warehouse_client::WarehouseClient,
-        },
+    infrastructure::warehouse::{
+        snapshots::organization::tenants::model::TenantSnapshotModel,
+        warehouse_client::WarehouseClient,
     },
-    utils::build_query,
 };
 
 pub struct TenantPoolQuerySnapshot {
@@ -35,7 +31,7 @@ impl LoaderWarehouse for TenantPoolQuerySnapshot {
     }
 
     fn columns(&self) -> &'static [&'static str] {
-        &["tenant_name", "tenant_code", "tenant_id"]
+        &["id", "tenant_name", "tenant_code", "tenant_id"]
     }
 
     fn conflicted_columns(&self) -> &'static [&'static str] {
@@ -47,19 +43,24 @@ impl LoaderWarehouse for TenantPoolQuerySnapshot {
 impl IncrementalSource for TenantPoolQuerySnapshot {
     type Cursor = String;
     type Output = TenantSnapshot;
-
     async fn fetch(
         &self,
         limit: i64,
         cursor: Option<Self::Cursor>,
-        filters: Option<Vec<WhereField>>,
+        _filters: Option<Vec<WhereField>>,
     ) -> Result<(Vec<Self::Output>)> {
-        let query = build_query(self, LoadEnum::Select(filters));
-        let mut query = QueryBuilder::new(&query);
-        if let Some(c) = cursor {
-            query.push(" WHERE id > ").push_bind(c);
+        info!("run query ");
+        let mut query = QueryBuilder::new(
+            "SELECT id, tenant_name, tenant_code, tenant_id FROM tenant_snapshots WHERE 1=1",
+        );
+
+        if let Some(cursor_data) = cursor {
+            query.push(" AND id > ").push_bind(cursor_data);
         }
+
+        query.push(" ORDER BY id ASC ");
         query.push(" LIMIT ").push_bind(limit);
+
         let result = query
             .build_query_as::<TenantSnapshotModel>()
             .fetch_all(&self.pool.pool)
@@ -83,5 +84,25 @@ impl TenantSnapshotQueryRepository for TenantPoolQuerySnapshot {
             .await?;
 
         Ok(result.iter().map(|f| f.into()).collect())
+    }
+
+    async fn find_last_cursor(&self) -> anyhow::Result<String> {
+        let build_query = format!("SELECT MAX(id) FROM {}", self.table());
+        let mut query = QueryBuilder::new(&build_query);
+        let result = query
+            .build_query_scalar::<String>()
+            .fetch_one(&self.pool.pool)
+            .await?;
+        Ok(result)
+    }
+
+    async fn find_first_cursor(&self) -> anyhow::Result<String> {
+        let build_query = format!("SELECT MIN(id) FROM {}", self.table());
+        let mut query = QueryBuilder::new(&build_query);
+        let result = query
+            .build_query_scalar::<String>()
+            .fetch_one(&self.pool.pool)
+            .await?;
+        Ok(result)
     }
 }

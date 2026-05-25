@@ -37,7 +37,6 @@ impl LoaderRunner {
                 .await?;
         }
 
-        logging.markAsCompleted(stream_id).await?;
         Ok(total_affected_rows)
     }
 }

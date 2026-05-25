@@ -28,7 +28,6 @@ impl PipelineTrait for IngestionPipeline {
 
         let source = self.source.get(source)?;
 
-        info!("running ingestion ");
         let (result, cursor) = source.extract(cursor, limit, None).await?;
         Ok((cursor, result))
     }

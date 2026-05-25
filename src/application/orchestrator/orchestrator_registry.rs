@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    app_state::{self, AppState},
     application::{
-        exporter::export_registry::ExportRegistry, load::LoadRegistry,
+        dataset::DatasetRegistry, load::LoadRegistry,
         orchestrator::export_orchestrator::ExportOrchestrator,
         pipelines::pipeline_registry::PipelineRegistry, writter::WritterRegistry,
     },
@@ -17,6 +16,7 @@ pub fn build_orchestrator_registry(
     pipeline: Arc<PipelineRegistry>,
     loader: Arc<LoadRegistry>,
     logging: Arc<dyn LoggingRepo>,
+    dataset: Arc<DatasetRegistry>,
 ) -> OrchestratorRegistry {
     let mut registry = OrchestratorRegistry::new();
     registry.register(
@@ -26,6 +26,7 @@ pub fn build_orchestrator_registry(
             writter: writter,
             load: loader,
             logging: logging,
+            dataset,
         }),
     );
     registry

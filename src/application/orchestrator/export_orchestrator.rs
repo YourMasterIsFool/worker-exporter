@@ -1,18 +1,19 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Ok;
 use tracing::instrument;
 
 use crate::{
-    app_state::AppState,
     application::{
-        load::LoadRegistry, pipelines::pipeline_registry::PipelineRegistry,
-        runner::loader_runner::LoaderRunner, writter::WritterRegistry,
+        dataset::DatasetRegistry,
+        load::LoadRegistry,
+        pipelines::pipeline_registry::PipelineRegistry,
+        runner::{export_runner::ExportRunner, loader_runner::LoaderRunner},
+        writter::WritterRegistry,
     },
-    core::traits::{
-        orchestrator::{Orchestrator, OrchestratorJob},
-        pipeline::pipeline_trait::PipelineTrait,
-        writter::writter_trait::WritterTrait,
+    core::{
+        datasets::dataset_trait::Dataset,
+        traits::orchestrator::{Orchestrator, OrchestratorJob},
     },
     domain::logging::{
         entity::{LoggingEntity, LoggingStatus, LoggingType},
@@ -25,6 +26,7 @@ pub struct ExportOrchestrator {
     pub writter: Arc<WritterRegistry>,
     pub logging: Arc<dyn LoggingRepo>,
     pub load: Arc<LoadRegistry>,
+    pub dataset: Arc<DatasetRegistry>,
 }
 
 #[async_trait::async_trait]
@@ -69,8 +71,46 @@ impl Orchestrator for ExportOrchestrator {
             return Err(err);
         }
 
-        // export csv first
-        //
+        // =================================================================
+        // PERBAIKAN DI SINI
+        // =================================================================
+
+        // 1. Tambahkan `mut` di sini agar objek Box gres yang kamu dapatkan
+        // dari Factory bisa dimutasi secara lokal di dalam fungsi ini.
+        let mut writter = self.writter.get("csv")?;
+
+        // init file path
+        let safe_msg_id: String = msg_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let file_path: PathBuf = PathBuf::from("exports").join(format!("{safe_msg_id}.csv"));
+        writter.init(&file_path.to_string_lossy())?;
+
+        let dataset = self.dataset.get("tenants")?;
+
+        // 2. Gunakan writter.as_mut() untuk memberikan `&mut dyn WritterTrait` ke runner
+        if let Err(err) = ExportRunner::run(
+            dataset.as_ref(),
+            self.logging.as_ref(),
+            writter.as_mut(),
+            msg_id,
+        )
+        .await
+        {
+            self.logging
+                .updateError(msg_id, Some(err.to_string()))
+                .await?;
+            return Err(err);
+        }
+
+        self.logging.markAsCompleted(msg_id).await?;
 
         Ok(())
     }

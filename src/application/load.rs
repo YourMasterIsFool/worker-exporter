@@ -3,7 +3,8 @@ use std::sync::Arc;
 use crate::{
     core::traits::{load::IncrementalLoad, strategy::registry::Registry},
     infrastructure::warehouse::{
-        snapshots::tenants::upsert::TenantWarehouseSnapshot, warehouse_client::WarehouseClient,
+        snapshots::organization::tenants::upsert::TenantWarehouseSnapshot,
+        warehouse_client::WarehouseClient,
     },
 };
 

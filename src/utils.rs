@@ -57,7 +57,14 @@ pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: LoadEnum) -> String {
                         .join(" AND ")
                 })
                 .unwrap_or_default();
-            format!("SELECT {} FROM {} WHERE {}", columns, table, where_clause)
+            if where_clause.is_empty() {
+                format!("SELECT {} FROM {} WHERE 1=1 AND ", columns, table)
+            } else {
+                format!(
+                    "SELECT {} FROM {} WHERE 1=1 AND {} AND ",
+                    columns, table, where_clause
+                )
+            }
         }
     }
 }

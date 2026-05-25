@@ -55,8 +55,8 @@ impl IncrementalLoad for TenantWarehouseSnapshot {
         for snapshot in &snapshots {
             sqlx::query(&query)
                 .bind(&snapshot.tenant_name)
-                .bind(&snapshot.tenant_name)
                 .bind(&snapshot.tenant_code)
+                .bind(&snapshot.tenant_id)
                 .execute(&mut *tx)
                 .await?;
         }

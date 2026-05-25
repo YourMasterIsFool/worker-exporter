@@ -1,7 +1,7 @@
-use std::fs::File;
+use std::{fs::File, path::Path};
 
 use crate::core::traits::writter::writter_trait::{ExportRow, WritterTrait};
-use anyhow::{Ok, Result};
+use anyhow::{Result, anyhow};
 use csv::Writer;
 
 pub struct CsvExporter {
@@ -19,37 +19,47 @@ impl CsvExporter {
 }
 
 impl WritterTrait for CsvExporter {
-    fn write_headers(&mut self, headers: Vec<String>) -> Result<()> {
-        // writte header
-        if let Some(writter) = self.writter.as_mut() {
-            writter
-                .write_record(headers.iter())
-                .map_err(|e| anyhow::anyhow!(e))?;
-            self.written_headers = true;
-        }
+    fn write_headers(&mut self, headers: &[String]) -> Result<()> {
+        let writter = self
+            .writter
+            .as_mut()
+            .ok_or_else(|| anyhow!("csv writer is not initialized"))?;
+        writter.write_record(headers.iter())?;
+        writter.flush()?;
+        self.written_headers = true;
         Ok(())
     }
 
     fn write_rows(&mut self, rows: &[ExportRow]) -> Result<()> {
-        if let Some(writter) = &mut self.writter {
-            for row in rows {
-                writter
-                    .write_record(row.fields.iter())
-                    .map_err(|e| anyhow::anyhow!(e))?;
-            }
+        let writter = self
+            .writter
+            .as_mut()
+            .ok_or_else(|| anyhow!("csv writer is not initialized"))?;
+        for row in rows {
+            writter.write_record(row.fields.iter())?;
         }
+        writter.flush()?;
         Ok(())
     }
 
     fn finish(&mut self) -> Result<()> {
-        if let Some(writter) = self.writter.as_mut() {
-            writter.flush().map_err(|e| anyhow::anyhow!(e))?;
-        }
+        let writter = self
+            .writter
+            .as_mut()
+            .ok_or_else(|| anyhow!("csv writer is not initialized"))?;
+        writter.flush()?;
         Ok(())
     }
 
     fn init(&mut self, file_path: &str) -> Result<()> {
-        let defined_writter = csv::Writer::from_path(file_path).map_err(|e| anyhow::anyhow!(e))?;
+        let path = Path::new(file_path);
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        let defined_writter = csv::Writer::from_path(path)?;
         self.writter = Some(defined_writter);
         Ok(())
     }

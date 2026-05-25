@@ -10,6 +10,5 @@ pub struct ExportRequest {
     pub tenant: String,
 }
 
-pub type DatasetRegistry = Registry<dyn DatasetTrait>;
 pub type WriterRegsitry = Registry<dyn WritterTrait>;
 pub type TenantRegistry = Registry<dyn TenantStrategy>;

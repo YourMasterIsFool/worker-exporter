@@ -41,11 +41,11 @@ impl Dataset for TenantDataset {
         let tenant_snapshot = TenantPoolQuerySnapshot {
             pool: self.client.clone(),
         };
-
         let tenants = tenant_snapshot.fetch(limit, cursor, None).await?;
+        let next_cursor = tenants.iter().rev().find_map(|t| t.id.clone());
 
         let rows: Vec<ExportRow> = tenants.into_iter().map(|t| t.into()).collect();
 
-        Ok((rows, None))
+        Ok((rows, next_cursor))
     }
 }

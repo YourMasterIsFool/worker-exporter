@@ -7,7 +7,6 @@ pub enum AppError {
     InternalServerError,
     #[error("Validation error: {0}")]
     ValidationError(#[from] serde_json::Error),
-
     #[error("Error Parssing: {0}")]
     ParsingError(#[from] anyhow::Error),
 }
@@ -18,8 +17,8 @@ pub enum DomainError {
     DatabaseError(#[from] sqlx::Error),
 
     #[error("Warehouse Error: {0}")]
-    WarehouseError(anyhow::Error),
+    WarehouseError(sqlx::Error),
 
     #[error("Ingestion Error: {0}")]
-    IngestionError(anyhow::Error),
+    IngestionError(sqlx::Error),
 }

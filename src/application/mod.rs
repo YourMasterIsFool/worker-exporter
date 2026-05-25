@@ -1,3 +1,4 @@
+pub mod dataset;
 pub mod errors;
 pub mod exporter;
 pub mod factory;
