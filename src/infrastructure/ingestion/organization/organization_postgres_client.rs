@@ -6,6 +6,6 @@ pub struct OrganizatinPostgresClient {
 
 impl OrganizatinPostgresClient {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool: pool }
+        Self { pool }
     }
 }

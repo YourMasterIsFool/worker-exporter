@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::{Ok, Result};
-use sqlx::QueryBuilder;
 use tracing::info;
 
 use crate::{
     core::traits::load::{IncrementalLoad, LoadEnum, LoaderWarehouse},
-    domain::snapshots::organization::tenant_snapshot::TenantSnapshotQueryRepository,
     infrastructure::warehouse::{
         snapshots::organization::tenants::model::TenantSnapshotModel,
         warehouse_client::WarehouseClient,
@@ -46,7 +44,8 @@ impl IncrementalLoad for TenantWarehouseSnapshot {
             .map(|row| TenantSnapshotModel::try_from(row))
             .collect::<Result<Vec<_>>>()?;
 
-        let query = build_query(self, LoadEnum::Upsert);
+        let upsert_load = LoadEnum::Upsert;
+        let query = build_query(self, &upsert_load);
 
         info!("snapshot {:?}", snapshots);
         info!("snapshot query {}", query);

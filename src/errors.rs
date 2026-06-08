@@ -1,5 +1,4 @@
 use thiserror::Error;
-use tokio::time::error;
 
 #[derive(Error, Debug)]
 pub enum AppError {

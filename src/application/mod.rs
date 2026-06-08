@@ -8,4 +8,5 @@ pub mod orchestrator;
 pub mod pipelines;
 pub mod runner;
 pub mod source;
+pub mod warehouse;
 pub mod writter;

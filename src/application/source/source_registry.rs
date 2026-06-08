@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::{
-    app_state::AppState,
     core::traits::{
         extractor::source_incremental_extract::SourceIncrementalExtract,
         strategy::registry::Registry,

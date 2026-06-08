@@ -1,7 +1,8 @@
 use anyhow::Result;
-use std::clone::Clone;
 
-use crate::core::traits::writter::writter_trait::ExportRow;
+use crate::core::traits::{
+    extractor::incremental_source::WhereField, load::LoadEnum, writter::writter_trait::ExportRow,
+};
 
 #[async_trait::async_trait]
 pub trait DatasetTrait {
@@ -16,7 +17,10 @@ pub trait DatasetTrait {
 pub trait Dataset {
     async fn fetch_batch(
         &self,
+        strategy_enum: &LoadEnum,
         cursor: Option<String>,
         limit: i64,
     ) -> Result<(Vec<ExportRow>, Option<String>)>;
+
+    async fn get_min_cursor(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<String>;
 }

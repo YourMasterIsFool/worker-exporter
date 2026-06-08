@@ -6,6 +6,6 @@ pub struct WarehouseClient {
 
 impl WarehouseClient {
     pub fn new(pool: PgPool) -> anyhow::Result<Self> {
-        Ok(Self { pool: pool })
+        Ok(Self { pool })
     }
 }

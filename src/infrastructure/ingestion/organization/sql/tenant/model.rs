@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::Serialize;
 use sqlx::prelude::FromRow;
 use uuid::Uuid;

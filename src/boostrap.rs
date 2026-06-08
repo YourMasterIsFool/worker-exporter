@@ -1,23 +1,20 @@
 use tracing::{error, info};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use crate::{
     app_state::AppState,
     application::{
-        dataset::{build_dataset_registry, DatasetRegistry},
-        handler::ingestion_handler::IngestionHandler,
+        dataset::build_dataset_registry, handler::ingestion_handler::IngestionHandler,
         load::build_load_registry,
         orchestrator::orchestrator_registry::build_orchestrator_registry,
         pipelines::pipeline_registry::build_pipeline_registry,
-        source::source_registry::build_source_registry,
-        writter::build_writter_registry,
+        source::source_registry::build_source_registry, writter::build_writter_registry,
     },
     core::{
         config::{config::Config, database_manager::DatabaseManager},
         traits::{
             consumer::{Consumer, ConsumerMessage},
             handler::JobHandler,
-            orchestrator,
         },
     },
     infrastructure::{
@@ -34,9 +31,13 @@ pub fn init_logger() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,sqlx=debug"));
 
-    fmt().with_env_filter(filter).with_target(false).init();
+    // 2. Gabungkan format logger terminal dengan TracyLayer di sini
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_target(false))
+        .with(tracing_tracy::TracyLayer::default())
+        .try_init();
 }
-
 pub async fn bootstrap() -> anyhow::Result<()> {
     init_logger();
     // 1. config
@@ -65,7 +66,7 @@ pub async fn bootstrap() -> anyhow::Result<()> {
     let source_registry = Arc::new(build_source_registry(organization_client.clone()));
     let writter_registry = Arc::new(build_writter_registry());
     let pipeline_registry = Arc::new(build_pipeline_registry(
-        incremental_load_registry.clone(),
+        // incremental_load_registry.clone(),
         source_registry.clone(),
     ));
     let dataset_registry = Arc::new(build_dataset_registry(warehouse_client.clone()));
@@ -82,15 +83,15 @@ pub async fn bootstrap() -> anyhow::Result<()> {
     ));
 
     // repo
-    let warehouse_repo = WarehouseRepo::new(warehouse_client.clone());
+    let _warehouse_repo = WarehouseRepo::new(warehouse_client.clone());
 
     // 5. app state
     let state = Arc::new(AppState {
-        warehouse_client,
-        organization_db: organization_client,
-        source_registry: source_registry,
-        incremental_load_registry: incremental_load_registry,
-        warehouse_repo: Arc::new(warehouse_repo),
+        // warehouse_client,
+        // organization_db: organization_client,
+        // source_registry,
+        // incremental_load_registry,
+        // warehouse_repo: Arc::new(warehouse_repo),
         orchestrator_registry: orchestrator,
     });
 

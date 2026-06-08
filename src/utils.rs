@@ -1,11 +1,7 @@
-use std::fmt::format;
-
 use anyhow::{Context, Result};
+use tracing::info;
 
-use crate::core::traits::{
-    extractor::incremental_source::IncrementalSource,
-    load::{LoadEnum, LoaderWarehouse},
-};
+use crate::core::traits::load::{LoadEnum, LoaderWarehouse};
 
 pub fn reformated_value(key: &str, value: &serde_json::Value) -> Result<String> {
     let val = value[key]
@@ -16,9 +12,9 @@ pub fn reformated_value(key: &str, value: &serde_json::Value) -> Result<String> 
     Ok(val)
 }
 
-pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: LoadEnum) -> String {
+pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: &LoadEnum) -> String {
     let table = loader.table();
-    let columns = loader.columns().join(",");
+    let mut columns = loader.columns().join(",");
     let placeholders = loader
         .columns()
         .iter()
@@ -46,7 +42,12 @@ pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: LoadEnum) -> String {
 
             format!("UPDATE {} SET {} WHERE 1=1  ", table, updated_columns)
         }
-        LoadEnum::Select(where_fields) => {
+        LoadEnum::Select(where_fields, from_column) => {
+            if let Some(from_columns) = from_column {
+                columns = from_columns.join(",");
+            }
+
+            info!("columns {:?}", columns);
             let where_clause = where_fields
                 .as_ref()
                 .map(|fields| {
@@ -58,10 +59,10 @@ pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: LoadEnum) -> String {
                 })
                 .unwrap_or_default();
             if where_clause.is_empty() {
-                format!("SELECT {} FROM {} WHERE 1=1 AND ", columns, table)
+                format!("SELECT {} FROM {} WHERE 1=1  ", columns, table)
             } else {
                 format!(
-                    "SELECT {} FROM {} WHERE 1=1 AND {} AND ",
+                    "SELECT {} FROM {} WHERE 1=1  {}  ",
                     columns, table, where_clause
                 )
             }

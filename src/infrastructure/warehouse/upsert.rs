@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
-use anyhow::{Ok, Result};
-use sqlx::QueryBuilder;
+use anyhow::Result;
 
 pub struct UpsertConfig {
     pub table: &'static str,

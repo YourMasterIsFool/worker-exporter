@@ -13,10 +13,7 @@ pub type LoadRegistry = Registry<dyn IncrementalLoad + Send + Sync>;
 pub fn build_load_registry(client: Arc<WarehouseClient>) -> LoadRegistry {
     let mut registry = LoadRegistry::new();
 
-    registry.register(
-        "tenants",
-        Arc::new(TenantWarehouseSnapshot { client: client }),
-    );
+    registry.register("tenants", Arc::new(TenantWarehouseSnapshot { client }));
 
     registry
 }

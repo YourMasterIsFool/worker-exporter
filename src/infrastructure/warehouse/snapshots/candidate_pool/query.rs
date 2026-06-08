@@ -1,11 +1,4 @@
-use std::result;
-
-use anyhow::{Ok, Result};
-use sqlx::{postgres::PgPoolOptions, PgPool, QueryBuilder};
-
-use crate::core::traits::extractor::build_query_trait::BuildTableTrait;
-
-use super::model::CandidatePoolSnapshotModel;
+use sqlx::PgPool;
 
 pub struct CandidatePoolQuerySnapshot {
     pool: PgPool,

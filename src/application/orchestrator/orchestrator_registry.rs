@@ -22,10 +22,10 @@ pub fn build_orchestrator_registry(
     registry.register(
         "export",
         Arc::new(ExportOrchestrator {
-            pipeline: pipeline,
-            writter: writter,
+            pipeline,
+            writter,
             load: loader,
-            logging: logging,
+            logging,
             dataset,
         }),
     );

@@ -21,6 +21,7 @@ impl PipelineTrait for ExportPipeline {
         source: &str,
     ) -> anyhow::Result<(Option<Uuid>, Vec<serde_json::Value>)> {
         let (rows, next_cursor) = self.source.extract(cursor, limit, None).await?;
+        println!("{}", source);
         // simpan rows ke destination kalau perlu
         Ok((next_cursor, rows))
     }

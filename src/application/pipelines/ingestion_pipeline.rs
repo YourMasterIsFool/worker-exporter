@@ -1,15 +1,12 @@
 use std::sync::Arc;
 
-use anyhow::{Ok, Result};
-use tracing::info;
+use anyhow::Ok;
+
 use uuid::Uuid;
 
 use crate::{
     application::source::source_registry::SourceRegistry,
-    core::traits::{
-        extractor::source_incremental_extract::SourceIncrementalExtract,
-        pipeline::pipeline_trait::PipelineTrait,
-    },
+    core::traits::pipeline::pipeline_trait::PipelineTrait,
 };
 
 pub struct IngestionPipeline {

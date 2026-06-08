@@ -8,7 +8,13 @@ pub enum LoadEnum {
     Upsert,
     Insert,
     Update(Vec<String>),
-    Select(Option<Vec<WhereField>>),
+    Select(Option<Vec<WhereField>>, Option<Vec<String>>),
+}
+
+impl LoadEnum {
+    pub fn is_select(&self) -> bool {
+        matches!(self, LoadEnum::Select(_, _))
+    }
 }
 #[async_trait::async_trait]
 pub trait IncrementalLoad: Send + Sync {

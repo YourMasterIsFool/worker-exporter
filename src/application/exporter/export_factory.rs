@@ -2,7 +2,6 @@ use crate::{
     application::exporter::types::ExportRequest,
     core::traits::pipeline::export_pipeline::ExportPipeline,
 };
-use async_trait::async_trait;
 
 #[async_trait::async_trait]
 pub trait ExportFactory: Send + Sync {

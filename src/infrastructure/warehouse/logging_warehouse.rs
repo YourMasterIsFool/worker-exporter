@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Ok;
-use sqlx::QueryBuilder;
+
 use tracing::{info, instrument};
-use uuid::Uuid;
 
 use crate::{
     core::traits::load::{LoadEnum, LoaderWarehouse},
     domain::logging::{
-        entity::{self, LoggingEntity, LoggingStatus},
+        entity::{LoggingEntity, LoggingStatus},
         repo::LoggingRepo,
     },
     errors::DomainError,
@@ -54,7 +53,7 @@ pub struct LoggingWarehouse {
 }
 
 impl LoggingWarehouse {
-    async fn updateCommit<T: Send + Sync>(
+    async fn update_commit<T: Send + Sync>(
         &self,
         stream_id: &str,
         key: &str,
@@ -108,7 +107,8 @@ impl LoaderWarehouse for LoggingWarehouse {
 impl LoggingRepo for LoggingWarehouse {
     #[instrument(skip(self, entity), fields(logging_type = %entity.logging_type, stream_id = %entity.stream_id))]
     async fn store(&self, entity: LoggingEntity) -> anyhow::Result<String> {
-        let qb = build_query(self, crate::core::traits::load::LoadEnum::Insert);
+        let insert_enum = LoadEnum::Insert;
+        let qb = build_query(self, &insert_enum);
         let sql_returning = format!("{} RETURNING id ", qb);
         info!(" logging entity {:?}", entity);
         let result: String = sqlx::query_scalar(&sql_returning)
@@ -130,13 +130,17 @@ impl LoggingRepo for LoggingWarehouse {
     }
 
     #[instrument(skip(self), fields(stream_id = %stream_id, current_chunk = %current_chunk))]
-    async fn updateCurrentChunk(&self, stream_id: &str, current_chunk: i64) -> anyhow::Result<()> {
-        self.updateCommit(stream_id, "current_chunk", current_chunk)
+    async fn update_current_chunk(
+        &self,
+        stream_id: &str,
+        current_chunk: i64,
+    ) -> anyhow::Result<()> {
+        self.update_commit(stream_id, "current_chunk", current_chunk)
             .await?;
         Ok(())
     }
     #[instrument(skip(self), fields(stream_id = %stream_id, processed_count = %processed_count))]
-    async fn updateProcessedCount(
+    async fn update_processed_count(
         &self,
         stream_id: &str,
         processed_count: i64,
@@ -157,14 +161,14 @@ impl LoggingRepo for LoggingWarehouse {
         Ok(())
     }
 
-    async fn updateCursor(&self, stream_id: &str, cursor: Option<String>) -> anyhow::Result<()> {
-        self.updateCommit(stream_id, "cursor", cursor).await?;
+    async fn update_cursor(&self, stream_id: &str, cursor: Option<String>) -> anyhow::Result<()> {
+        self.update_commit(stream_id, "cursor", cursor).await?;
 
         Ok(())
     }
 
     #[instrument(skip(self), fields(stream_id = %stream_id))]
-    async fn markAsCompleted(&self, stream_id: &str) -> anyhow::Result<()> {
+    async fn mark_as_completed(&self, stream_id: &str) -> anyhow::Result<()> {
         let qb = format!(
             "
             UPDATE {} SET status = $1, completed_at = NOW() where  stream_id = $2
@@ -181,23 +185,23 @@ impl LoggingRepo for LoggingWarehouse {
         Ok(())
     }
 
-    async fn updateStatus(&self, stream_id: &str, status: LoggingStatus) -> anyhow::Result<()> {
-        self.updateCommit(stream_id, "status", status.to_string())
+    async fn update_status(&self, stream_id: &str, status: LoggingStatus) -> anyhow::Result<()> {
+        self.update_commit(stream_id, "status", status.to_string())
             .await?;
         Ok(())
     }
 
-    async fn updateError(&self, stream_id: &str, error: Option<String>) -> anyhow::Result<()> {
-        self.updateCommit(stream_id, "error", error).await?;
+    async fn update_error(&self, stream_id: &str, error: Option<String>) -> anyhow::Result<()> {
+        self.update_commit(stream_id, "error", error).await?;
         Ok(())
     }
 
-    async fn updateDownloadUrl(&self, stream_id: &str, url: String) -> anyhow::Result<()> {
-        self.updateCommit(stream_id, "download_url", url).await?;
+    async fn update_download_url(&self, stream_id: &str, url: String) -> anyhow::Result<()> {
+        self.update_commit(stream_id, "download_url", url).await?;
         Ok(())
     }
 
-    async fn updateCursorAndProcessedCount(
+    async fn update_cursor_and_processed_count(
         &self,
         stream_id: &str,
         cursor: Option<String>,

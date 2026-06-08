@@ -1,8 +1,3 @@
-use chrono::DateTime;
-use chrono::Utc;
-
-use crate::infrastructure::ingestion::organization::enums;
-
 #[derive(Clone, Debug)]
 pub struct LoggingEntity {
     pub id: Option<String>,

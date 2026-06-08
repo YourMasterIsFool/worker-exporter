@@ -24,6 +24,8 @@ once_cell = "1.19.0"
 tokio-util = "0.7.12"
 tracing = "0.1"
 tracing-subscriber = { version="0.3", features =['env-filter', 'fmt']}
+tracing-tracy = "0.11"
+tracy-client = { version = "0.17", features = ["enable", "system-tracing"] }
 serde_json = "1.0"
 async-trait = "0.1"
 anyhow = "1.0.102"
@@ -42,3 +44,7 @@ features = ["v4", "serde"]
 # [dependencies.reqwest]
 # [dependencies.native-tls]
 # [features]
+
+
+[profile.release]
+debug = true

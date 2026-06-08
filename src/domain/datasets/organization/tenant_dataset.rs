@@ -1,10 +1,19 @@
-use std::sync::Arc;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, WaitTimeoutResult},
+};
+
+use sqlx::{query::Query, QueryBuilder};
+use tracing::info;
 
 use crate::{
     core::{
         datasets::dataset_trait::Dataset,
         traits::{
-            extractor::incremental_source::IncrementalSource, writter::writter_trait::ExportRow,
+            extractor::incremental_source::{IncrementalSource, WhereField},
+            load::LoadEnum,
+            strategy,
+            writter::writter_trait::ExportRow,
         },
     },
     domain::snapshots::organization::tenant_snapshot::TenantSnapshot,
@@ -14,38 +23,73 @@ use crate::{
     },
 };
 
+#[derive(Clone)]
 pub struct TenantDataset {
     pub client: Arc<WarehouseClient>,
 }
 
-impl From<TenantSnapshot> for ExportRow {
-    fn from(value: TenantSnapshot) -> Self {
-        Self {
-            fields: vec![
-                value.tenant_id,
-                value.tenant_name,
-                value.tenant_code,
-                value.id.unwrap_or_default(),
-            ],
-        }
-    }
-}
+impl ExportRow {}
 
+impl TenantDataset {}
 #[async_trait::async_trait]
 impl Dataset for TenantDataset {
+    async fn get_min_cursor(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<String> {
+        let sql = format!(" SELECT id from {} ", "tenant_snapshots");
+
+        let mut qb = QueryBuilder::new(&sql);
+
+        if let Some(filters) = filters {
+            qb.push(" WHERE 1=1 ");
+            for field in filters {
+                qb.push(format!(" AND {} {} ", field.field, field.operator))
+                    .push_bind(field.value);
+            }
+        }
+
+        qb.push(" ORDER BY id ASC limit 1");
+
+        let result = qb
+            .build_query_scalar::<String>()
+            .fetch_one(&self.client.pool)
+            .await?;
+
+        Ok(result)
+    }
     async fn fetch_batch(
         &self,
+        strategy_enum: &LoadEnum,
         cursor: Option<String>,
         limit: i64,
     ) -> anyhow::Result<(Vec<ExportRow>, Option<String>)> {
+        let mut columns = vec![];
+        let filters: Option<Vec<WhereField>> = None;
+        if let LoadEnum::Select(f, c) = strategy_enum {
+            if let Some(c) = c {
+                columns = c.clone();
+            }
+        }
+
+        info!("columns  {:?}", columns);
         let tenant_snapshot = TenantPoolQuerySnapshot {
             pool: self.client.clone(),
         };
-        let tenants = tenant_snapshot.fetch(limit, cursor, None).await?;
-        let next_cursor = tenants.iter().rev().find_map(|t| t.id.clone());
+        let tenants = tenant_snapshot.fetch(strategy_enum, limit, cursor).await?;
+        info!("tenant dataset  {:?}", tenants);
 
-        let rows: Vec<ExportRow> = tenants.into_iter().map(|t| t.into()).collect();
+        let next_cursor = tenants
+            .last()
+            .and_then(|f| f.get("id"))
+            .and_then(|f| Some(f.to_string()))
+            .map(|f| f);
 
+        let rows: Vec<ExportRow> = tenants
+            .into_iter()
+            .map(|t| {
+                // 💡 Definisikan tipe data secara manual pada variabel
+
+                ExportRow::validate_json(t, &columns)
+            })
+            .collect::<anyhow::Result<Vec<ExportRow>>>()?;
         Ok((rows, next_cursor))
     }
 }

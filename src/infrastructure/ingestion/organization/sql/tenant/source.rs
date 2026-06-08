@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Ok, Result};
-use sqlx::{Postgres, QueryBuilder, Value};
+use sqlx::{Postgres, QueryBuilder};
 use tracing::info;
 use uuid::Uuid;
 

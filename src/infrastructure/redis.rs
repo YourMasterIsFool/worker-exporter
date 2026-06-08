@@ -1,7 +1,6 @@
 use crate::core::traits::consumer::{Consumer, ConsumerMessage};
 use redis::{aio::ConnectionManager, AsyncCommands};
 use std::sync::Arc;
-use tracing::info;
 
 pub struct RedisStreamConsumer {
     pub client: Arc<ConnectionManager>,

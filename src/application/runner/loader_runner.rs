@@ -33,7 +33,7 @@ impl LoaderRunner {
 
             // update cursor and processed count
             logging
-                .updateCursorAndProcessedCount(stream_id, parse_cursor, total_affected_rows)
+                .update_cursor_and_processed_count(stream_id, parse_cursor, total_affected_rows)
                 .await?;
         }
 

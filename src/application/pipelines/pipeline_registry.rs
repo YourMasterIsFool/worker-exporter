@@ -6,18 +6,14 @@ use std::sync::Arc;
 
 use crate::{
     application::{
-        load::LoadRegistry, pipelines::ingestion_pipeline::IngestionPipeline,
-        source::source_registry::SourceRegistry,
+        pipelines::ingestion_pipeline::IngestionPipeline, source::source_registry::SourceRegistry,
     },
-    core::traits::{
-        extractor::source_incremental_extract::SourceIncrementalExtract,
-        pipeline::pipeline_trait::PipelineTrait, strategy::registry::Registry,
-    },
+    core::traits::{pipeline::pipeline_trait::PipelineTrait, strategy::registry::Registry},
 };
 
 pub type PipelineRegistry = Registry<dyn PipelineTrait>;
 pub fn build_pipeline_registry(
-    loader: Arc<LoadRegistry>,
+    // loader: Arc<LoadRegistry>,
     source: Arc<SourceRegistry>,
 ) -> PipelineRegistry {
     let mut registry = PipelineRegistry::new();

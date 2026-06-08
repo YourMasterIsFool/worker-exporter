@@ -1,16 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use sqlx::QueryBuilder;
+use sqlx::{Execute, QueryBuilder, Row};
 use tracing::info;
 
 use crate::{
     core::traits::{
-        extractor::{
-            build_query_trait::BuildTableTrait,
-            incremental_source::{IncrementalSource, WhereField},
-        },
-        load::LoaderWarehouse,
+        extractor::incremental_source::{IncrementalSource, WhereField},
+        load::{LoadEnum, LoaderWarehouse},
     },
     domain::snapshots::organization::tenant_snapshot::{
         TenantSnapshot, TenantSnapshotQueryRepository,
@@ -19,6 +16,7 @@ use crate::{
         snapshots::organization::tenants::model::TenantSnapshotModel,
         warehouse_client::WarehouseClient,
     },
+    utils::build_query,
 };
 
 pub struct TenantPoolQuerySnapshot {
@@ -39,33 +37,63 @@ impl LoaderWarehouse for TenantPoolQuerySnapshot {
     }
 }
 
+impl TenantPoolQuerySnapshot {
+    async fn find_min_cursor(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<String> {
+        let sql = format!("SELECT id from {}", &self.table());
+        let mut qb = QueryBuilder::new(&sql);
+
+        if let Some(where_fields) = filters {
+            qb.push(" WHERE 1=1 ");
+
+            for field in where_fields {
+                qb.push(format!(" AND {} ", field.field))
+                    .push_bind(field.value);
+            }
+        }
+
+        qb.push(" LIMIT 1 ORDER BY id ASC ");
+
+        let result = qb
+            .build_query_scalar::<String>()
+            .fetch_one(&self.pool.pool)
+            .await?;
+
+        Ok(result)
+    }
+}
 #[async_trait::async_trait]
 impl IncrementalSource for TenantPoolQuerySnapshot {
     type Cursor = String;
-    type Output = TenantSnapshot;
+    type Output = serde_json::Value;
     async fn fetch(
         &self,
+        stategy_enum: &LoadEnum,
         limit: i64,
         cursor: Option<Self::Cursor>,
-        _filters: Option<Vec<WhereField>>,
-    ) -> Result<(Vec<Self::Output>)> {
+    ) -> Result<Vec<Self::Output>> {
         info!("run query ");
-        let mut query = QueryBuilder::new(
-            "SELECT id, tenant_name, tenant_code, tenant_id FROM tenant_snapshots WHERE 1=1",
-        );
-
+        let qb = build_query(self, stategy_enum);
+        let jsonable_query_builder = format!(" SELECT to_jsonb(t) from ({}", &qb);
+        let mut query = QueryBuilder::new(&jsonable_query_builder);
+        println!("this query {}", qb.clone());
         if let Some(cursor_data) = cursor {
             query.push(" AND id > ").push_bind(cursor_data);
         }
 
         query.push(" ORDER BY id ASC ");
         query.push(" LIMIT ").push_bind(limit);
+        query.push(") t");
 
-        let result = query
-            .build_query_as::<TenantSnapshotModel>()
-            .fetch_all(&self.pool.pool)
-            .await?;
-        Ok(result.iter().map(|f| f.into()).collect())
+        let result = query.build().fetch_all(&self.pool.pool).await?;
+        info!("result query {:?}", result);
+        let formatted_result = result
+            .into_iter()
+            .map(|f| {
+                let val = f.try_get(0).map_err(|err| anyhow::anyhow!(err))?;
+                Ok(val)
+            })
+            .collect::<Result<Vec<serde_json::Value>, anyhow::Error>>()?;
+        Ok(formatted_result)
     }
 }
 

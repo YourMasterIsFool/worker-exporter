@@ -1,12 +1,11 @@
-use std::{collections::HashMap, f64::consts::E, sync::Arc};
+use std::collections::HashMap;
 
-use anyhow::{Error, Ok};
+use anyhow::Ok;
 use tracing::warn;
 
 use crate::{
-    app_state::{self, AppState},
-    core::traits::{strategy::registry::Registry, writter::writter_trait::WritterTrait},
-    infrastructure::exporter::csv_exporter::CsvExporter,
+    core::traits::writter::writter_trait::WritterTrait,
+    infrastructure::exporter::{csv_exporter::CsvExporter, excel_exporter::ExcelExporter},
 };
 
 // pub type WritterRegistry = Registry<dyn WritterTrait>;
@@ -51,5 +50,6 @@ impl WritterRegistry {
 pub fn build_writter_registry() -> WritterRegistry {
     let mut registry = WritterRegistry::new();
     registry.register("csv", || Box::new(CsvExporter::new()));
+    registry.register("excel", || Box::new(ExcelExporter::new()));
     registry
 }

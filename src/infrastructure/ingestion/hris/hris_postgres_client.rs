@@ -6,6 +6,6 @@ pub struct HrisPostgresClient {
 
 impl HrisPostgresClient {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool: pool }
+        Self { pool }
     }
 }
