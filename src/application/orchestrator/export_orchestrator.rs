@@ -1,23 +1,29 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Ok;
+use s3::Bucket;
 use tracing::{info, instrument};
 
 use crate::{
     application::{
         dataset::DatasetRegistry,
+        grpcs::facilitator::{s3_proto::UploadFileRequest, S3FacilitatorGrpc},
+        ingestion::source_registry::SourceRegistry,
         load::LoadRegistry,
         orchestrator::export_orchestrator,
         pipelines::pipeline_registry::PipelineRegistry,
         runner::{export_runner::ExportRunner, loader_runner::LoaderRunner},
-        source::source_registry::SourceRegistry,
         writter::WritterRegistry,
     },
-    core::traits::orchestrator::{Orchestrator, OrchestratorJob},
+    core::{
+        traits::orchestrator::{Orchestrator, OrchestratorJob},
+        types::WhereField,
+    },
     domain::logging::{
         entity::{LoggingEntity, LoggingStatus, LoggingType},
         repo::LoggingRepo,
     },
+    utils::remove_file,
 };
 
 pub struct ExportOrchestrator {
@@ -26,11 +32,12 @@ pub struct ExportOrchestrator {
     pub logging: Arc<dyn LoggingRepo>,
     pub load: Arc<LoadRegistry>,
     pub dataset: Arc<DatasetRegistry>,
+    pub s3_grpc: Arc<S3FacilitatorGrpc>,
 }
 
 #[async_trait::async_trait]
 impl Orchestrator for ExportOrchestrator {
-    #[instrument(skip(self, job), fields(msg_id = %msg_id, tenant_id = %job.tenant_id))]
+    #[instrument(skip(self, job), fields(msg_id = %msg_id, tenant_id = %job.tenant_id, types="export"))]
     async fn run(&self, job: &OrchestratorJob, msg_id: &str) -> anyhow::Result<()> {
         // just example
         // let ingestion_pipeline = self.pipeline.get("ingestion")?;
@@ -38,6 +45,9 @@ impl Orchestrator for ExportOrchestrator {
 
         let logging_entity = LoggingEntity {
             id: None,
+            tenant_id: job.tenant_id.clone(),
+            email: job.email.clone(),
+            actor_id: job.actor_id.clone(),
             logging_type: LoggingType::Export.to_string(),
             completed_at: None,
             download_url: None,
@@ -96,7 +106,7 @@ impl Orchestrator for ExportOrchestrator {
 
             let mut writter = self.writter.get(&format)?;
 
-            // init file path
+            // Inisialisasi file path
             let safe_msg_id: String = msg_id
                 .chars()
                 .map(|c| {
@@ -107,37 +117,103 @@ impl Orchestrator for ExportOrchestrator {
                     }
                 })
                 .collect();
+
             let file_path: PathBuf =
                 PathBuf::from("exports").join(format!("{safe_msg_id}.{}", format_file));
 
+            // =================================================================
+            // PERBAIKAN 1: Ekstrak String di sini agar tidak memindahkan `file_path`
+            // =================================================================
+            let file_path_str = file_path.to_string_lossy().into_owned();
+
             let mut writter = tokio::task::spawn_blocking(move || {
-                writter.init(&file_path.to_string_lossy()).map(|_| writter)
+                // Sekarang yang pindah (move) hanyalah string `file_path_str`,
+                // variabel `file_path` (PathBuf) di atas tetap aman & utuh!
+                writter.init(&file_path_str).map(|_| writter)
             })
             .await??;
 
-            let dataset = self.dataset.get("tenants")?;
+            let dataset = self.dataset.get(&config.dataset)?;
             let mut cursor: Option<String> =
                 Some(dataset.as_ref().get_min_cursor(job.filters.clone()).await?);
-            info!("cursor {:?}", cursor);
-            // 2. Gunakan writter.as_mut() untuk memberikan `&mut dyn WritterTrait` ke runner
-            ExportRunner::run(
+
+            let mut job_filter = vec![WhereField {
+                field: "tenant_id".into(),
+                operator: "=".to_string(),
+                value: Some(job.tenant_id.clone()),
+                values: None,
+            }];
+
+            if let Some(filters) = &job.filters {
+                job_filter.extend(filters.clone());
+            }
+
+            let expor_runner = ExportRunner::run(
                 dataset.as_ref(),
                 self.logging.as_ref(),
                 writter.as_mut(),
                 &export_columns,
                 msg_id,
-                job.filters.clone(),
+                Some(job_filter),
                 &mut cursor,
             )
             .await;
+
+            if let Err(err) = expor_runner {
+                tracing::error!("gagal export runner {:?}", err);
+                return Err(err);
+            }
+
             tokio::task::spawn_blocking(move || {
                 if let Err(finish_err) = writter.finish() {
                     tracing::error!("Gagal mengunci dan menutup stream file: {:?}", finish_err);
                 }
             })
             .await?;
-        }
 
+            // =================================================================
+            // PERBAIKAN 2: Lewatkan referensi `&file_path` untuk dibaca oleh Tokio
+            // =================================================================
+            let buffer_data = tokio::fs::read(&file_path)
+                .await
+                .map_err(|e| anyhow::anyhow!("Gagal membaca file hasil export: {}", e))?;
+
+            // Panggil client gRPC Anda secara mutable menggunakan Arc::clone jika dibutuhkan,
+            // namun karena upload_file butuh `&mut self`, pastikan s3_grpc di struktur struct
+            // dikelola secara mandiri atau gunakan fungsi internal jika trait membolehkan.
+            // Di sini kita berasumsi pembungkus s3_grpc Anda mengizinkan pemanggilan langsung.
+            let payload = self
+                .s3_grpc
+                .upload_file(UploadFileRequest {
+                    usage: "DOCUMENT".into(),
+                    bucket_type: "PUBLIC".into(),
+                    app_type: "HRMS".into(),
+                    tenant_id: job.tenant_id.clone(), // Tambahkan .clone() jika tenant_id adalah String agar tidak ter-move
+                    data: buffer_data,
+                    // AMAN: `file_path` di bawah ini sekarang valid untuk digunakan berkali-kali
+                    file_name: file_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .into(),
+                    file_type: file_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .into(),
+                })
+                .await?;
+
+            let key = payload.get_ref().key.clone();
+            self.logging.update_download_url(msg_id, key).await?;
+
+            // remove temporary excel after upload into grpc
+
+            // if let Err(err) = remove_file(&file_path) {
+            //     tracing::warn!("failed to remove file: {:?}", err);
+            // }
+            println!("after submit handler grpc {:?}", payload);
+        }
         self.logging.mark_as_completed(msg_id).await?;
 
         Ok(())

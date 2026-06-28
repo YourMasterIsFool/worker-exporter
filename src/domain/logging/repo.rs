@@ -16,4 +16,5 @@ pub trait LoggingRepo: Send + Sync {
     async fn update_status(&self, id: &str, status: LoggingStatus) -> anyhow::Result<()>;
     async fn update_error(&self, id: &str, error: Option<String>) -> anyhow::Result<()>;
     async fn update_download_url(&self, id: &str, url: String) -> anyhow::Result<()>;
+    async fn list_log_by_tenant_id(&self, tenant_id: &str) -> anyhow::Result<Vec<LoggingEntity>>;
 }

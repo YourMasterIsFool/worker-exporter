@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use tracing::info;
 
@@ -53,7 +55,14 @@ pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: &LoadEnum) -> String {
                 .map(|fields| {
                     fields
                         .iter()
-                        .map(|field| format!("{} {} {}", field.field, field.operator, field.value))
+                        .map(|field| {
+                            format!(
+                                "{} {} {}",
+                                field.field,
+                                field.operator,
+                                field.value.as_deref().unwrap_or_default()
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join(" AND ")
                 })
@@ -68,4 +77,8 @@ pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: &LoadEnum) -> String {
             }
         }
     }
+}
+
+pub fn remove_file(path: &PathBuf) -> std::io::Result<()> {
+    std::fs::remove_file(path)
 }

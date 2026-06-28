@@ -1,12 +1,15 @@
 use ::anyhow::Result;
 use uuid::Uuid;
 
+use crate::core::traits::extractor::incremental_source::WhereField;
+use crate::core::traits::load::LoadEnum;
+
 #[async_trait::async_trait]
 pub trait SourceIncrementalExtract {
     async fn extract(
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        params: Option<serde_json::Value>,
+        strategy_enum: &LoadEnum,
     ) -> Result<(Vec<serde_json::Value>, Option<Uuid>)>;
 }

@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package s3;
+
+service S3Service {
+  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
+  rpc GetDownloadUrl(GetDownloadUrlRequest) returns (GetDownloadUrlResponse);
+}
+
+message UploadFileRequest {
+  string file_name = 1;
+  string file_type = 2;
+  string usage = 3;
+  string bucket_type = 4;
+  bytes data = 5;
+  string tenant_id = 6;
+  string app_type = 7;
+}
+
+message UploadFileResponse {
+  string key = 1;
+  string bucket = 2;
+}
+
+message GetDownloadUrlRequest {
+  repeated string keys = 1;
+}
+
+message DownloadUrlItem {
+  string url = 1;
+  string key = 2;
+  int32 expires_in = 3;
+  string bucket = 4;
+  string expires_at = 5;
+}
+
+message GetDownloadUrlResponse {
+  repeated DownloadUrlItem items = 1;
+}

@@ -27,3 +27,8 @@ pub trait IncrementalSource {
         cursor: Option<Self::Cursor>,
     ) -> Result<Vec<Self::Output>>;
 }
+
+#[async_trait::async_trait]
+pub trait FetchSource {
+    async fn fetch(&self, strategy_enum: &LoadEnum) -> Result<Vec<serde_json::Value>>;
+}

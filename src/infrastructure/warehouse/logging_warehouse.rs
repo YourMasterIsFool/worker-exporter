@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Ok;
 
+use chrono::NaiveDateTime;
+use serde::Serialize;
+use sqlx::{query_builder, QueryBuilder};
 use tracing::{info, instrument};
 
 use crate::{
@@ -11,28 +14,57 @@ use crate::{
         repo::LoggingRepo,
     },
     errors::DomainError,
-    infrastructure::warehouse::warehouse_client::WarehouseClient,
+    infrastructure::warehouse::{self, warehouse_client::WarehouseClient},
     utils::build_query,
 };
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Debug)]
 pub struct LoggingWarehouseModel {
     pub id: Option<String>,
+    pub actor_id: String,
+    pub stream_id: String,
     pub logging_type: String,
-    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<NaiveDateTime>,
     pub download_url: Option<String>,
     pub status: String,
     pub error: Option<serde_json::Value>,
     pub additional_info: Option<serde_json::Value>,
-    pub processed_count: i64,
-    pub current_chunk: i64,
-    pub total_chunk: i64,
+    pub processed_count: i32,
+    pub current_chunk: i32,
+    pub tenant_id: String,
+    pub email: String,
+    pub total_chunk: i32,
     pub cursor: Option<String>,
 }
 
+impl From<LoggingWarehouseModel> for LoggingEntity {
+    fn from(value: LoggingWarehouseModel) -> Self {
+        Self {
+            stream_id: value.stream_id,
+            email: value.email,
+            tenant_id: value.tenant_id,
+            additional_info: value.additional_info,
+            completed_at: value.completed_at,
+            cursor: value.cursor,
+            current_chunk: value.current_chunk,
+            download_url: value.download_url,
+            error: value.error,
+            logging_type: value.logging_type,
+            actor_id: value.actor_id,
+            processed_count: value.processed_count,
+            status: value.status,
+            id: value.id,
+            total_chunk: value.total_chunk,
+        }
+    }
+}
 impl From<LoggingEntity> for LoggingWarehouseModel {
     fn from(value: LoggingEntity) -> Self {
         Self {
+            stream_id: value.stream_id,
+            actor_id: value.actor_id,
+            email: value.email,
+            tenant_id: value.tenant_id,
             additional_info: value.additional_info,
             completed_at: value.completed_at,
             cursor: value.cursor,
@@ -89,6 +121,9 @@ impl LoaderWarehouse for LoggingWarehouse {
             "logging_type",
             "completed_at",
             "download_url",
+            "actor_id",
+            "email",
+            "tenant_id",
             "status",
             "error",
             "additional_info",
@@ -105,6 +140,26 @@ impl LoaderWarehouse for LoggingWarehouse {
 }
 #[async_trait::async_trait]
 impl LoggingRepo for LoggingWarehouse {
+    #[instrument(skip(self, tenant_id))]
+    async fn list_log_by_tenant_id(&self, tenant_id: &str) -> anyhow::Result<Vec<LoggingEntity>> {
+        let query = format!("SELECT * FROM {}", self.table());
+        let mut query_builder = QueryBuilder::new(&query);
+        query_builder.push(" WHERE tenant_id = ");
+        query_builder.push_bind(tenant_id);
+        query_builder.push(" ORDER BY created_at DESC");
+
+        let result = query_builder
+            .build_query_as::<LoggingWarehouseModel>()
+            .fetch_all(&self.client.pool)
+            .await
+            .map_err(DomainError::DatabaseError)?;
+
+        let mapper_result = result
+            .into_iter()
+            .map(|f| f.into())
+            .collect::<Vec<LoggingEntity>>();
+        Ok(mapper_result)
+    }
     #[instrument(skip(self, entity), fields(logging_type = %entity.logging_type, stream_id = %entity.stream_id))]
     async fn store(&self, entity: LoggingEntity) -> anyhow::Result<String> {
         let insert_enum = LoadEnum::Insert;
@@ -115,6 +170,9 @@ impl LoggingRepo for LoggingWarehouse {
             .bind(entity.logging_type.to_string())
             .bind(entity.completed_at)
             .bind(entity.download_url)
+            .bind(entity.actor_id)
+            .bind(entity.email)
+            .bind(entity.tenant_id)
             .bind(entity.status)
             .bind(entity.error)
             .bind(entity.additional_info)

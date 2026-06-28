@@ -15,7 +15,7 @@ CREATE TABLE tenant_taxes_dimensions (
 	personal_position_id uuid NULL,
 	valid_from timestamp NULL,
 	valid_end timestamp NULL,
-	deleted_at timestamp NULL
+	is_current bool DEFAULT true NOT NULL,
 	CONSTRAINT "FK_tenant_information_tenant_dimension" FOREIGN KEY (tenant_dimension_id) REFERENCES tenant_dimensions(id)
 
 );

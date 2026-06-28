@@ -1,15 +1,21 @@
-#[derive(Clone, Debug)]
+use chrono::NaiveDateTime;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LoggingEntity {
     pub id: Option<String>,
+    pub actor_id: String,
+    pub email: String,
+    pub tenant_id: String,
     pub logging_type: String,
-    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<NaiveDateTime>,
     pub download_url: Option<String>,
     pub status: String,
     pub error: Option<serde_json::Value>,
     pub additional_info: Option<serde_json::Value>,
-    pub processed_count: i64,
-    pub current_chunk: i64,
-    pub total_chunk: i64,
+    pub processed_count: i32,
+    pub current_chunk: i32,
+    pub total_chunk: i32,
     pub cursor: Option<String>,
     pub stream_id: String,
 }

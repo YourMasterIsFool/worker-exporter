@@ -1,10 +1,48 @@
-[env]
-WAREHOUSE_DATABASE_URL = { script = ["grep '^WAREHOUSE_DATABASE_URL=' .env | cut -d '=' -f2-"] }
-
 [tasks.migrate-main]
 description = "Run warehouse migrations"
-script = ["DATABASE_URL=${WAREHOUSE_DATABASE_URL} sqlx migrate run"]
+script = [
+    "set -a && source .env && set +a",
+    "export DATABASE_URL=$WAREHOUSE_DATABASE_URL",
+    "sqlx migrate run --ignore-missing"
+]
+
+
+[tasks.db-drop]
+description = "Drop warehouse database"
+script = [
+    "set -a && source .env && set +a",
+    "export DATABASE_URL=$WAREHOUSE_DATABASE_URL",
+    "sqlx database drop -y --force"
+]
+
+[tasks.db-create]
+description = "Create warehouse database"
+script = [
+    "set -a && source .env && set +a",
+    "export DATABASE_URL=$WAREHOUSE_DATABASE_URL",
+    "sqlx database create"
+]
+
+[tasks.db-reset]
+description = "Nuke warehouse database and re-run all migrations"
+dependencies = [
+    "db-drop",
+    "db-create",
+    "migrate-main"
+]
+
+[tasks.migrate-info]
+description = "Run warehouse migrations"
+script = [
+    "set -a && source .env && set +a",
+    "export DATABASE_URL=$WAREHOUSE_DATABASE_URL",
+    "sqlx migrate info"
+]
 
 [tasks.migrate-main-revert]
 description = "Revert last warehouse migration"
-script = ["DATABASE_URL=${WAREHOUSE_DATABASE_URL} sqlx migrate revert"]
+script = [
+    "set -a && source .env && set +a",
+    "export DATABASE_URL=$WAREHOUSE_DATABASE_URL",
+    "sqlx migrate revert"
+]

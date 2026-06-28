@@ -6,10 +6,14 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    core::traits::extractor::{
-        build_query_trait::BuildTableTrait, source_incremental_extract::SourceIncrementalExtract,
+    core::traits::{
+        extractor::{
+            build_query_trait::BuildTableTrait,
+            source_incremental_extract::SourceIncrementalExtract,
+        },
+        load::LoadEnum,
     },
-    domain::ingestion::organization::tenant::{TenantEntity, TenantIngestionRepo},
+    domain::ingestion::organization::tenant::{TenantIngestionEntity, TenantIngestionRepo},
     infrastructure::ingestion::organization::{
         enums::OrganizationTableEnum, organization_postgres_client::OrganizatinPostgresClient,
         sql::tenant::model::TenantModel,
@@ -42,7 +46,7 @@ impl BuildTableTrait<OrganizationTableEnum> for TenantSource {
 
 #[async_trait::async_trait]
 impl TenantIngestionRepo for TenantSource {
-    async fn findByIds(&self, tenant_ids: Vec<String>) -> Vec<TenantEntity> {
+    async fn findByIds(&self, tenant_ids: Vec<String>) -> Vec<TenantIngestionEntity> {
         let sql_query = format!(
             "SELECT {} FROM {} WHERE id IN ({})",
             self.columns().join(","),
@@ -67,7 +71,7 @@ impl SourceIncrementalExtract for TenantSource {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        _params: Option<serde_json::Value>,
+        strategy_enum: &LoadEnum,
     ) -> Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         let sql_query = format!(
             "SELECT {} FROM {}",

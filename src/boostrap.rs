@@ -1,14 +1,18 @@
+use axum::Router;
+
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use crate::{
-    app_state::AppState,
+    app_state::{self, AppState},
     application::{
-        dataset::build_dataset_registry, handler::ingestion_handler::IngestionHandler,
-        load::build_load_registry,
+        dataset::build_dataset_registry, fetch_source_regitry::build_data_fetcher_json_registry,
+        grpcs::facilitator::S3FacilitatorGrpc, handler::ingestion_handler::IngestionHandler,
+        ingestion::source_registry::build_source_registry, load::build_load_registry,
         orchestrator::orchestrator_registry::build_orchestrator_registry,
         pipelines::pipeline_registry::build_pipeline_registry,
-        source::source_registry::build_source_registry, writter::build_writter_registry,
+        presentation::http::post_detail_file_http, repositories::Repositories,
+        usecases::usecases::Usecases, writter::build_writter_registry,
     },
     core::{
         config::{config::Config, database_manager::DatabaseManager},
@@ -18,6 +22,11 @@ use crate::{
         },
     },
     infrastructure::{
+        db::{
+            ats_client::AtsClient,
+            db_manager::DatabaseInfraManager,
+            master_client::{self, MasterClient},
+        },
         ingestion::organization::organization_postgres_client::OrganizatinPostgresClient,
         redis::RedisStreamConsumer,
         warehouse::{logging_warehouse::LoggingWarehouse, warehouse_client::WarehouseClient},
@@ -38,17 +47,27 @@ pub fn init_logger() {
         .with(tracing_tracy::TracyLayer::default())
         .try_init();
 }
-pub async fn bootstrap() -> anyhow::Result<()> {
+
+pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     init_logger();
+
     // 1. config
     let config = Config::new();
+    let s3_gprc = Arc::new(S3FacilitatorGrpc::new(&config.facilitator_grpc_url));
 
-    // 2. database
+    // defining pool in database manager
     let database_manager = Arc::new(
         DatabaseManager::new(&config)
             .await
             .expect("DATABASE MANAGER ERROR"),
     );
+
+    // defining database infra manager
+    let database_infra_manager = Arc::new(DatabaseInfraManager::new(database_manager.clone()));
+
+    // defining repositories
+    let repositories = Arc::new(Repositories::new(database_infra_manager.clone()));
+    let usecases = Arc::new(Usecases::new(repositories.clone()));
 
     // 3. clients
     let warehouse_client = Arc::new(
@@ -56,20 +75,37 @@ pub async fn bootstrap() -> anyhow::Result<()> {
             .expect("failed to create warehouse client"),
     );
 
+    let ats_client = Arc::new(AtsClient::new(database_manager.ats.clone()));
+    let master_client = Arc::new(MasterClient::new(database_manager.master.clone()));
+
     let organization_client = Arc::new(OrganizatinPostgresClient::new(
         database_manager.organization.clone(),
     ));
 
     let incremental_load_registry = Arc::new(build_load_registry(warehouse_client.clone()));
-
     // 4. source registry
-    let source_registry = Arc::new(build_source_registry(organization_client.clone()));
+    let source_registry = Arc::new(build_source_registry(
+        organization_client.clone(),
+        ats_client.clone(),
+        master_client.clone(),
+    ));
     let writter_registry = Arc::new(build_writter_registry());
     let pipeline_registry = Arc::new(build_pipeline_registry(
         // incremental_load_registry.clone(),
         source_registry.clone(),
     ));
-    let dataset_registry = Arc::new(build_dataset_registry(warehouse_client.clone()));
+    let data_fetcher_registry = Arc::new(build_data_fetcher_json_registry(
+        organization_client.clone(),
+        ats_client.clone(),
+        master_client.clone(),
+    ));
+
+    let dataset_registry = Arc::new(build_dataset_registry(
+        warehouse_client.clone(),
+        ats_client.clone(),
+        data_fetcher_registry.clone(),
+        source_registry.clone(),
+    ));
 
     let warehouse_logging = Arc::new(LoggingWarehouse {
         client: warehouse_client.clone(),
@@ -80,6 +116,7 @@ pub async fn bootstrap() -> anyhow::Result<()> {
         incremental_load_registry.clone(),
         warehouse_logging.clone(),
         dataset_registry.clone(),
+        s3_gprc.clone(),
     ));
 
     // repo
@@ -93,6 +130,8 @@ pub async fn bootstrap() -> anyhow::Result<()> {
         // incremental_load_registry,
         // warehouse_repo: Arc::new(warehouse_repo),
         orchestrator_registry: orchestrator,
+        s3_facilitator_grpc: s3_gprc.clone(),
+        usecases,
     });
 
     // 6. redis
@@ -125,9 +164,8 @@ pub async fn bootstrap() -> anyhow::Result<()> {
     });
 
     // ⛔ THIS WAS MISSING
-    tokio::signal::ctrl_c().await?;
-    info!("shutdown signal received");
-    Ok(())
+
+    Ok(state.clone())
 }
 
 async fn setup_stream_groups(manager: Arc<ConnectionManager>) -> anyhow::Result<()> {

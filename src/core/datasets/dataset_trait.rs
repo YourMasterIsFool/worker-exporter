@@ -1,7 +1,8 @@
 use anyhow::Result;
 
-use crate::core::traits::{
-    extractor::incremental_source::WhereField, load::LoadEnum, writter::writter_trait::ExportRow,
+use crate::core::{
+    traits::{load::LoadEnum, writter::writter_trait::ExportRow},
+    types::WhereField,
 };
 
 #[async_trait::async_trait]

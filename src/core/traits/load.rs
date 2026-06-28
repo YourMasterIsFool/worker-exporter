@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::core::traits::extractor::incremental_source::WhereField;
+use crate::core::types::WhereField;
 
 pub enum LoadEnum {
     Upsert,

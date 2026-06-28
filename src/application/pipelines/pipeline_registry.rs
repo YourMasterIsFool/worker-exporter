@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use crate::{
     application::{
-        pipelines::ingestion_pipeline::IngestionPipeline, source::source_registry::SourceRegistry,
+        ingestion::source_registry::SourceRegistry,
+        pipelines::ingestion_pipeline::IngestionPipeline,
     },
     core::traits::{pipeline::pipeline_trait::PipelineTrait, strategy::registry::Registry},
 };
@@ -17,11 +18,11 @@ pub fn build_pipeline_registry(
     source: Arc<SourceRegistry>,
 ) -> PipelineRegistry {
     let mut registry = PipelineRegistry::new();
-    registry.register(
-        "ingestion",
-        Arc::new(IngestionPipeline {
-            source: source.clone(),
-        }),
-    );
+    // registry.register(
+    //     "ingestion",
+    //     Arc::new(IngestionPipeline {
+    //         source: source.clone(),
+    //     }),
+    // );
     registry
 }

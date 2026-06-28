@@ -3,7 +3,7 @@ use serde::Serialize;
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-use crate::domain::ingestion::organization::tenant::TenantEntity;
+use crate::domain::ingestion::organization::tenant::TenantIngestionEntity;
 
 #[derive(Serialize, FromRow, Debug)]
 pub struct TenantModel {
@@ -18,9 +18,9 @@ pub struct TenantModel {
     pub deleted_at: Option<NaiveDateTime>,
 }
 
-impl From<TenantModel> for TenantEntity {
+impl From<TenantModel> for TenantIngestionEntity {
     fn from(model: TenantModel) -> Self {
-        TenantEntity {
+        TenantIngestionEntity {
             id: model.id.to_string(),
             tenant_code: model.tenant_code,
             tenant_name: model.tenant_name,

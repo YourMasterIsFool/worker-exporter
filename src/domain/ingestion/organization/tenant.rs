@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-pub struct TenantEntity {
+pub struct TenantIngestionEntity {
     pub id: String,
     pub tenant_code: String,
     pub tenant_name: String,
@@ -16,5 +16,5 @@ pub struct TenantEntity {
 
 #[async_trait::async_trait]
 pub trait TenantIngestionRepo {
-    async fn findByIds(&self, tenant_ids: Vec<String>) -> Vec<TenantEntity>;
+    async fn findByIds(&self, tenant_ids: Vec<String>) -> Vec<TenantIngestionEntity>;
 }

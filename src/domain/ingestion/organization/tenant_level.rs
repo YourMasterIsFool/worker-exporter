@@ -1,0 +1,15 @@
+pub struct TenantLevelIngestionEntity {
+    pub id: uuid::Uuid,
+    pub tenant_id: uuid::Uuid,
+    pub oltp_tenant_id: uuid::Uuid,
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_active: bool,
+    pub sort_order: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+    pub parent_id: Option<uuid::Uuid>,
+    pub multilang: Option<serde_json::Value>,
+}

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     application::{
-        dataset::DatasetRegistry, load::LoadRegistry,
+        dataset::DatasetRegistry, grpcs::facilitator::S3FacilitatorGrpc, load::LoadRegistry,
         orchestrator::export_orchestrator::ExportOrchestrator,
         pipelines::pipeline_registry::PipelineRegistry, writter::WritterRegistry,
     },
@@ -17,6 +17,7 @@ pub fn build_orchestrator_registry(
     loader: Arc<LoadRegistry>,
     logging: Arc<dyn LoggingRepo>,
     dataset: Arc<DatasetRegistry>,
+    s3_grpc: Arc<S3FacilitatorGrpc>,
 ) -> OrchestratorRegistry {
     let mut registry = OrchestratorRegistry::new();
     registry.register(
@@ -27,6 +28,7 @@ pub fn build_orchestrator_registry(
             load: loader,
             logging,
             dataset,
+            s3_grpc,
         }),
     );
     registry
