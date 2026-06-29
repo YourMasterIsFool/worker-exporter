@@ -17,7 +17,6 @@ use crate::{
                 },
                 vacancy::vacancy::AtsVacancySource,
             },
-            master::master_item::MasterMasterItemsSource,
             organization::{
                 organization_postgres_client::OrganizatinPostgresClient,
                 sql::tenant::source::TenantSource,
@@ -35,7 +34,7 @@ pub struct SourceRegistryStruct {
 pub fn build_source_registry(
     organization_db: Arc<OrganizatinPostgresClient>,
     ats_db: Arc<AtsClient>,
-    master_db: Arc<MasterClient>,
+    _master_db: Arc<MasterClient>,
 ) -> SourceRegistry {
     let mut registry = SourceRegistry::new();
     registry.register(

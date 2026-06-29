@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::{
-    core::config::database_manager::DatabaseManager,
     domain::logging::repo::LoggingRepo,
     infrastructure::{
         db::db_manager::DatabaseInfraManager, warehouse::logging_warehouse::LoggingWarehouse,

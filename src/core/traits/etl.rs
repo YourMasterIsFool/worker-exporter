@@ -1,9 +1,6 @@
-use std::any::Any;
+use std::{any::Any, collections::HashSet};
 
-use sqlx::{prelude::FromRow, Execute, PgPool, Pool, Postgres, QueryBuilder};
-use tracing::info;
-use tracing_subscriber::{filter, fmt::format};
-use uuid::Uuid;
+use sqlx::{prelude::FromRow, PgPool, Pool, Postgres, QueryBuilder};
 
 use crate::core::types::WhereField;
 
@@ -101,6 +98,7 @@ pub async fn fetch_data_json<T>(
     query: &mut QueryBuilder<'_, Postgres>,
     filters: Option<Vec<WhereField>>,
     pool: &Pool<Postgres>,
+    order_by: Option<&str>,
 ) -> anyhow::Result<Vec<serde_json::Value>>
 where
     T: for<'r> FromRow<'r, sqlx::postgres::PgRow> + serde::Serialize + Unpin + Send,
@@ -117,15 +115,20 @@ where
                 let clean_values: Vec<String> = values
                     .into_iter()
                     .filter(|s| s != "null" && !s.is_empty())
+                    .collect::<HashSet<String>>()
+                    .into_iter()
                     .collect();
 
                 // 2. Jika setelah difilter array kosong, kita tidak perlu memanggil query
                 // atau biarkan database mengembalikan hasil kosong
-                if !clean_values.is_empty() {
-                    query.push(format!(" AND {} {} ANY(", field.field, field.operator));
-                    query.push_bind(clean_values);
-                    query.push("::uuid[]) ");
+                //
+                if clean_values.is_empty() {
+                    continue;
                 }
+
+                query.push(format!(" AND {} {} ANY(", field.field, field.operator));
+                query.push_bind(clean_values);
+                query.push("::uuid[]) ");
             } else if let Some(value) = field.value {
                 // Untuk kondisi biasa: AND id = $1
                 query.push(format!(" AND {} {} ", field.field, field.operator));
@@ -133,12 +136,14 @@ where
             }
         }
     }
-
+    if let Some(order_by) = order_by {
+        query.push(format!(" ORDER BY {} ", order_by));
+    }
     let result = query.build_query_as::<T>().fetch_all(pool).await?;
 
     let parse_result = result
         .iter()
-        .map(|f| serde_json::to_value(f))
+        .map(serde_json::to_value)
         .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
     Ok(parse_result)

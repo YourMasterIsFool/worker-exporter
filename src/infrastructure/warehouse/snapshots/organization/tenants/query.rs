@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use sqlx::{Execute, QueryBuilder, Row};
-use tracing::info;
+use sqlx::{QueryBuilder, Row};
+use tracing::debug;
 
 use crate::{
     core::traits::{
@@ -71,7 +71,7 @@ impl IncrementalSource for TenantPoolQuerySnapshot {
         limit: i64,
         cursor: Option<Self::Cursor>,
     ) -> Result<Vec<Self::Output>> {
-        info!("run query ");
+        debug!("run query ");
         let qb = build_query(self, stategy_enum);
         let jsonable_query_builder = format!(" SELECT to_jsonb(t) from ({}", &qb);
         let mut query = QueryBuilder::new(&jsonable_query_builder);
@@ -85,7 +85,7 @@ impl IncrementalSource for TenantPoolQuerySnapshot {
         query.push(") t");
 
         let result = query.build().fetch_all(&self.pool.pool).await?;
-        info!("result query {:?}", result);
+        debug!("result query {:?}", result);
         let formatted_result = result
             .into_iter()
             .map(|f| {

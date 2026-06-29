@@ -1,38 +1,51 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Ok;
-use s3::Bucket;
-use tracing::{info, instrument};
+use serde::Serialize;
+use serde_json::json;
+use tracing::instrument;
 
 use crate::{
     application::{
         dataset::DatasetRegistry,
-        grpcs::facilitator::{s3_proto::UploadFileRequest, S3FacilitatorGrpc},
-        ingestion::source_registry::SourceRegistry,
+        grpcs::{facilitator::s3_proto::UploadFileRequest, gprc::GrpcService},
         load::LoadRegistry,
-        orchestrator::export_orchestrator,
         pipelines::pipeline_registry::PipelineRegistry,
-        runner::{export_runner::ExportRunner, loader_runner::LoaderRunner},
+        runner::export_runner::ExportRunner,
+        types::EmailProvider,
         writter::WritterRegistry,
     },
     core::{
-        traits::orchestrator::{Orchestrator, OrchestratorJob},
+        traits::{
+            orchestrator::{Orchestrator, OrchestratorJob},
+            publisher::Publisher,
+        },
         types::WhereField,
     },
     domain::logging::{
         entity::{LoggingEntity, LoggingStatus, LoggingType},
         repo::LoggingRepo,
     },
-    utils::remove_file,
 };
 
+#[derive(Debug, Serialize)]
+struct EmailPublisher {
+    email: String,
+    subject: String,
+    templateId: Option<String>,
+    templateCode: Option<String>,
+    templateStructureCode: Option<String>,
+    provider: String,
+    payload: serde_json::Value,
+}
 pub struct ExportOrchestrator {
     pub pipeline: Arc<PipelineRegistry>,
     pub writter: Arc<WritterRegistry>,
     pub logging: Arc<dyn LoggingRepo>,
     pub load: Arc<LoadRegistry>,
     pub dataset: Arc<DatasetRegistry>,
-    pub s3_grpc: Arc<S3FacilitatorGrpc>,
+    pub grpc_service: Arc<GrpcService>,
+    pub publisher: Arc<dyn Publisher>,
 }
 
 #[async_trait::async_trait]
@@ -156,6 +169,7 @@ impl Orchestrator for ExportOrchestrator {
                 msg_id,
                 Some(job_filter),
                 &mut cursor,
+                job.limit,
             )
             .await;
 
@@ -183,7 +197,8 @@ impl Orchestrator for ExportOrchestrator {
             // dikelola secara mandiri atau gunakan fungsi internal jika trait membolehkan.
             // Di sini kita berasumsi pembungkus s3_grpc Anda mengizinkan pemanggilan langsung.
             let payload = self
-                .s3_grpc
+                .grpc_service
+                .s3_facilitator_grpc
                 .upload_file(UploadFileRequest {
                     usage: "DOCUMENT".into(),
                     bucket_type: "PUBLIC".into(),
@@ -207,12 +222,30 @@ impl Orchestrator for ExportOrchestrator {
             let key = payload.get_ref().key.clone();
             self.logging.update_download_url(msg_id, key).await?;
 
+            let payload = json!({
+                "exporterName": job.email.clone()
+            });
+            let email = EmailPublisher {
+                email: job.email.clone(),
+                subject: "Send Email".into(),
+                templateId: None,
+                templateCode: Some("LSI_EMAIL_EXPORT".into()),
+                templateStructureCode: Some("LSI_EXPORT_STRUCTURE".into()),
+                provider: EmailProvider::SendGrid.to_string(),
+                payload,
+            };
+
+            let payload_email = serde_json::to_value(email)?;
+
+            self.publisher
+                .publish("stream:email", payload_email)
+                .await?;
+
             // remove temporary excel after upload into grpc
 
             // if let Err(err) = remove_file(&file_path) {
             //     tracing::warn!("failed to remove file: {:?}", err);
             // }
-            println!("after submit handler grpc {:?}", payload);
         }
         self.logging.mark_as_completed(msg_id).await?;
 

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::{Ok, Result};
-use tracing::{error, info};
 
 use crate::{
     app_state::AppState,
@@ -24,7 +23,7 @@ impl JobHandler for IngestionHandler {
         consumer_handler(
             self.consumer.clone(),
             self.app_state.orchestrator_registry.clone(),
-            "export",
+            "ingestion",
         )
         .await?;
 

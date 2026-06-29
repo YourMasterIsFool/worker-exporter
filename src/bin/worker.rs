@@ -1,33 +1,101 @@
+use std::sync::Arc;
+
 use anyhow::Result;
+use export_rust::application::handler::exporter_handler::ExportHandler;
+use export_rust::application::handler::ingestion_handler::IngestionHandler;
 use export_rust::boostrap::bootstrap;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt; // Tambahkan import ini untuk mengaktifkan try_init
+use export_rust::core::traits::consumer::{Consumer, ConsumerMessage};
+use export_rust::core::traits::handler::JobHandler;
+use export_rust::infrastructure::redis::RedisStreamConsumer;
+use redis::aio::ConnectionManager;
+ // Tambahkan import ini untuk mengaktifkan try_init
 
 #[global_allocator]
 static GLOBAL: tracing_tracy::client::ProfiledAllocator<std::alloc::System> =
     tracing_tracy::client::ProfiledAllocator::new(std::alloc::System, 100);
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Gunakan try_init() menggantikan init() agar jika sudah ada logger lain,
-    //
-    unsafe {
-        let layout = std::alloc::Layout::new::<u8>();
-        let ptr = std::alloc::GlobalAlloc::alloc(&GLOBAL, layout);
-        if !ptr.is_null() {
-            std::alloc::GlobalAlloc::dealloc(&GLOBAL, ptr, layout);
+async fn setup_stream_groups(manager: Arc<ConnectionManager>) -> anyhow::Result<()> {
+    let mut conn = manager.as_ref().clone();
+
+    let streams = vec![
+        ("stream:ingestion", "ingestion-group"),
+        ("stream:export", "export-group"),
+    ];
+
+    for (stream, group) in streams {
+        let result: redis::RedisResult<()> = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(stream)
+            .arg(group)
+            .arg("$")
+            .arg("MKSTREAM")
+            .query_async(&mut conn)
+            .await;
+
+        match result {
+            Ok(_) => println!("group {} created", group),
+            Err(e) if e.to_string().contains("BUSYGROUP") => {
+                println!("group {} already exists, skip", group)
+            }
+            Err(e) => return Err(anyhow::anyhow!(e)),
         }
     }
-    //
 
-    if let Err(e) = bootstrap().await {
-        eprintln!("fatal error: {:?}", e);
-        tokio::signal::ctrl_c().await?;
-        tracing::info!("shutdown signal received");
-        std::process::exit(1);
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // 1. bootstrap → sudah include init_logger + setup_stream_groups
+    let state = bootstrap().await?;
+    let manager = state.manager.clone();
+
+    // 2. ingestion — 1 worker (pindah dari bootstrap.rs ke sini)
+    let ingestion_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+        Arc::new(RedisStreamConsumer {
+            client: manager.clone(),
+            stream_key: "stream:ingestion".to_string(),
+            group: "ingestion-group".to_string(),
+            consumer_name: "ingestion-worker-1".to_string(),
+        });
+    let ingestion_handler = IngestionHandler {
+        app_state: state.clone(),
+        consumer: ingestion_consumer,
+    };
+    tokio::spawn(async move {
+        if let Err(e) = ingestion_handler.handler().await {
+            tracing::error!("ingestion handler crashed: {:?}", e);
+        }
+    });
+
+    // 3. export — 3 worker
+    for i in 1..=3 {
+        let export_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+            Arc::new(RedisStreamConsumer {
+                client: manager.clone(),
+                stream_key: "stream:export".to_string(),
+                group: "export-group".to_string(),
+                consumer_name: format!("export-worker-{}", i),
+            });
+
+        let export_handler = ExportHandler {
+            app_state: state.clone(),
+            consumer: export_consumer,
+        };
+
+        tokio::spawn(async move {
+            if let Err(err) = export_handler.handler().await {
+                tracing::error!("exporter  handler crashed: {:?}", err);
+            }
+        });
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+    // 4. keep alive
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::debug!("shutdown signal received");
+        }
+    }
 
     Ok(())
 }

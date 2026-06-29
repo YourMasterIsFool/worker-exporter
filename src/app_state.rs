@@ -1,8 +1,13 @@
 use std::sync::Arc;
 
-use crate::application::{
-    grpcs::facilitator::S3FacilitatorGrpc,
-    orchestrator::orchestrator_registry::OrchestratorRegistry, usecases::usecases::Usecases,
+use redis::aio::ConnectionManager;
+
+use crate::{
+    application::{
+        grpcs::gprc::GrpcService, orchestrator::orchestrator_registry::OrchestratorRegistry,
+        usecases::usecases::Usecases,
+    },
+    core::traits::publisher::Publisher,
 };
 #[derive(Clone)]
 pub struct AppState {
@@ -13,6 +18,8 @@ pub struct AppState {
     // pub incremental_load_registry: Arc<LoadRegistry>,
     // pub warehouse_repo: Arc<WarehouseRepo>,
     pub orchestrator_registry: Arc<OrchestratorRegistry>,
-    pub s3_facilitator_grpc: Arc<S3FacilitatorGrpc>,
+    pub grpc_service: Arc<GrpcService>,
+    pub publisher: Arc<dyn Publisher + Send + Sync>,
+    pub manager: Arc<ConnectionManager>,
     pub usecases: Arc<Usecases>, // pub writter_registry: Arc<WritterRegistry>,
 }

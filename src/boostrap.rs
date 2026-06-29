@@ -1,18 +1,21 @@
-use axum::Router;
 
-use tracing::{error, info};
+use tracing::error;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use crate::{
-    app_state::{self, AppState},
+    app_state::AppState,
     application::{
-        dataset::build_dataset_registry, fetch_source_regitry::build_data_fetcher_json_registry,
-        grpcs::facilitator::S3FacilitatorGrpc, handler::ingestion_handler::IngestionHandler,
-        ingestion::source_registry::build_source_registry, load::build_load_registry,
+        dataset::build_dataset_registry,
+        fetch_source_regitry::build_data_fetcher_json_registry,
+        grpcs::gprc::GrpcService,
+        handler::ingestion_handler::IngestionHandler,
+        ingestion::source_registry::build_source_registry,
+        load::build_load_registry,
         orchestrator::orchestrator_registry::build_orchestrator_registry,
         pipelines::pipeline_registry::build_pipeline_registry,
-        presentation::http::post_detail_file_http, repositories::Repositories,
-        usecases::usecases::Usecases, writter::build_writter_registry,
+        repositories::Repositories,
+        usecases::usecases::Usecases,
+        writter::build_writter_registry,
     },
     core::{
         config::{config::Config, database_manager::DatabaseManager},
@@ -25,10 +28,10 @@ use crate::{
         db::{
             ats_client::AtsClient,
             db_manager::DatabaseInfraManager,
-            master_client::{self, MasterClient},
+            master_client::MasterClient,
         },
         ingestion::organization::organization_postgres_client::OrganizatinPostgresClient,
-        redis::RedisStreamConsumer,
+        redis::{RedisPublisher, RedisStreamConsumer},
         warehouse::{logging_warehouse::LoggingWarehouse, warehouse_client::WarehouseClient},
     },
     repo::WarehouseRepo,
@@ -53,7 +56,16 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
 
     // 1. config
     let config = Config::new();
-    let s3_gprc = Arc::new(S3FacilitatorGrpc::new(&config.facilitator_grpc_url));
+
+    let grpc_service = Arc::new(GrpcService::new(&config));
+
+    let redis_client =
+        Client::open(std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".to_string()))?;
+    let manager = Arc::new(ConnectionManager::new(redis_client).await?);
+
+    let redis_publisher = Arc::new(RedisPublisher {
+        client: manager.clone(),
+    });
 
     // defining pool in database manager
     let database_manager = Arc::new(
@@ -105,6 +117,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         ats_client.clone(),
         data_fetcher_registry.clone(),
         source_registry.clone(),
+        grpc_service.clone(),
     ));
 
     let warehouse_logging = Arc::new(LoggingWarehouse {
@@ -116,13 +129,17 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         incremental_load_registry.clone(),
         warehouse_logging.clone(),
         dataset_registry.clone(),
-        s3_gprc.clone(),
+        grpc_service.clone(),
+        redis_publisher.clone(),
     ));
 
     // repo
     let _warehouse_repo = WarehouseRepo::new(warehouse_client.clone());
 
     // 5. app state
+
+    // 6. redis
+
     let state = Arc::new(AppState {
         // warehouse_client,
         // organization_db: organization_client,
@@ -130,14 +147,11 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         // incremental_load_registry,
         // warehouse_repo: Arc::new(warehouse_repo),
         orchestrator_registry: orchestrator,
-        s3_facilitator_grpc: s3_gprc.clone(),
+        grpc_service,
         usecases,
+        publisher: redis_publisher.clone(),
+        manager: manager.clone(),
     });
-
-    // 6. redis
-    let redis_client =
-        Client::open(std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".to_string()))?;
-    let manager = Arc::new(ConnectionManager::new(redis_client).await?);
 
     // 7. setup stream groups
     setup_stream_groups(manager.clone()).await?;

@@ -5,19 +5,16 @@
 use std::sync::Arc;
 
 use crate::{
-    application::{
-        ingestion::source_registry::SourceRegistry,
-        pipelines::ingestion_pipeline::IngestionPipeline,
-    },
+    application::ingestion::source_registry::SourceRegistry,
     core::traits::{pipeline::pipeline_trait::PipelineTrait, strategy::registry::Registry},
 };
 
 pub type PipelineRegistry = Registry<dyn PipelineTrait>;
 pub fn build_pipeline_registry(
     // loader: Arc<LoadRegistry>,
-    source: Arc<SourceRegistry>,
+    _source: Arc<SourceRegistry>,
 ) -> PipelineRegistry {
-    let mut registry = PipelineRegistry::new();
+    let registry = PipelineRegistry::new();
     // registry.register(
     //     "ingestion",
     //     Arc::new(IngestionPipeline {

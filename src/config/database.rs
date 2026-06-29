@@ -8,6 +8,12 @@ pub struct DatabaseConfig {
     olap_database_url: String,
 }
 
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DatabaseConfig {
     pub fn new() -> Self {
         dotenv().ok();
@@ -20,7 +26,7 @@ impl DatabaseConfig {
     pub async fn get_pg_pool(&self) -> Result<PgPool> {
         let pool = PgPoolOptions::new()
             .max_connections(10)
-            .connect(&self.olap_database_url.as_str())
+            .connect(self.olap_database_url.as_str())
             .await
             .expect("Failed running pg pool");
 

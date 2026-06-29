@@ -1,6 +1,10 @@
-use crate::core::traits::consumer::{Consumer, ConsumerMessage};
+use crate::core::traits::{
+    consumer::{Consumer, ConsumerMessage},
+    publisher::Publisher,
+};
 use redis::{aio::ConnectionManager, AsyncCommands};
 use std::sync::Arc;
+use tracing::debug;
 
 pub struct RedisStreamConsumer {
     pub client: Arc<ConnectionManager>,
@@ -51,6 +55,24 @@ impl Consumer for RedisStreamConsumer {
     async fn ack(&self, msg_id: &str) -> anyhow::Result<()> {
         let mut conn = self.client.as_ref().clone(); // ← self.client bukan self.conn
         let _: i64 = conn.xack(&self.stream_key, &self.group, &[msg_id]).await?;
+        Ok(())
+    }
+}
+
+pub struct RedisPublisher {
+    pub client: Arc<ConnectionManager>,
+}
+
+#[async_trait::async_trait]
+impl Publisher for RedisPublisher {
+    async fn publish(&self, stream_key: &str, payload: serde_json::Value) -> anyhow::Result<()> {
+        let mut conn = self.client.as_ref().clone();
+        let serialize_payload = serde_json::to_string(&payload)?;
+        let _: String = conn
+            .xadd(stream_key, "*", &[("payload", serialize_payload)])
+            .await?;
+
+        debug!("send publish {:?}", payload);
         Ok(())
     }
 }

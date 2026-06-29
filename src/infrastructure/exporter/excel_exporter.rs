@@ -13,6 +13,12 @@ pub struct ExcelExporter {
 
 unsafe impl Send for ExcelExporter {}
 unsafe impl Sync for ExcelExporter {}
+impl Default for ExcelExporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExcelExporter {
     pub fn new() -> Self {
         Self {
@@ -26,7 +32,7 @@ impl ExcelExporter {
 impl WritterTrait for ExcelExporter {
     fn write_headers(&mut self, headers: &[String]) -> Result<()> {
         if let Some(client) = self.client.as_mut() {
-            client.write_header(&headers.iter().map(|h| h.as_str()).collect::<Vec<_>>());
+            client.write_header(headers.iter().map(|h| h.as_str()).collect::<Vec<_>>());
         }
         Ok(())
     }

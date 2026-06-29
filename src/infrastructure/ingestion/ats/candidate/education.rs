@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bigdecimal::BigDecimal;
-use chrono::{format::Numeric, DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, QueryBuilder};
 use tracing::instrument;
@@ -80,11 +80,11 @@ impl DataFetcherJson for AtsEducationSource {
         let mut qb = QueryBuilder::new(&sql);
 
         let parse_result =
-            fetch_data_json::<AtsEducationModel>(&mut qb, filters, &self.pool.pool).await;
+            fetch_data_json::<AtsEducationModel>(&mut qb, filters, &self.pool.pool, None).await;
 
         match parse_result {
             Ok(result) => {
-                tracing::info!(" candidate source {:?}", result.clone());
+                tracing::debug!(" candidate source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {
@@ -101,7 +101,7 @@ impl SourceIncrementalExtract for AtsEducationSource {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        strategy_enum: &LoadEnum,
+        _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         let sql_query = format!(
             "SELECT {} FROM {}",
@@ -120,17 +120,14 @@ impl SourceIncrementalExtract for AtsEducationSource {
             .fetch_all(&self.pool.pool)
             .await?;
 
-        let last_cursor: Option<Uuid> = match result.last() {
-            None => None,
-            Some(last) => Some(last.id),
-        };
+        let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
 
         let parse_result = result
             .iter()
-            .map(|f| serde_json::to_value(f))
+            .map(serde_json::to_value)
             .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        tracing::info!(" candidate source {:?}", parse_result.clone());
+        tracing::debug!(" candidate source {:?}", parse_result.clone());
         Ok((parse_result, last_cursor))
     }
 }

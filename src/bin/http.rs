@@ -1,22 +1,17 @@
 use std::sync::Arc;
 
-use axum::extract::State;
-use axum::response::{IntoResponse, Redirect};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::routing::post;
+use axum::Router;
 
 use export_rust::application::presentation::http::list_logging_http::list_log_by_tenant_id_http;
 use export_rust::application::presentation::http::post_detail_file_http::post_detail_file_http;
-use export_rust::errors::AppError;
 use export_rust::{
-    app_state::{self, AppState},
-    application::grpcs::facilitator::{self, S3FacilitatorGrpc},
+    app_state::AppState,
     boostrap,
     core::config::config::Config,
 };
 
-use serde::Deserialize;
-use tracing::info;
+use tracing::debug;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 pub fn init_logger() {
@@ -56,7 +51,7 @@ async fn main() {
             .await
             .expect("http failed to bind");
 
-        info!("axum server running into {}", &host);
+        debug!("axum server running into {}", &host);
 
         axum::serve(listener, app)
             .await

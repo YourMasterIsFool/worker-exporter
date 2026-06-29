@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Ok, Result};
 use sqlx::{Postgres, QueryBuilder};
-use tracing::info;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -71,7 +71,7 @@ impl SourceIncrementalExtract for TenantSource {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        strategy_enum: &LoadEnum,
+        _strategy_enum: &LoadEnum,
     ) -> Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         let sql_query = format!(
             "SELECT {} FROM {}",
@@ -90,17 +90,14 @@ impl SourceIncrementalExtract for TenantSource {
             .fetch_all(&self.pool.pool)
             .await?;
 
-        let last_cursor: Option<Uuid> = match result.last() {
-            None => None,
-            Some(last) => Some(last.id),
-        };
+        let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
 
         let parse_result = result
             .iter()
-            .map(|f| serde_json::to_value(f))
+            .map(serde_json::to_value)
             .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        info!(" tenant source {:?}", parse_result.clone());
+        debug!(" tenant source {:?}", parse_result.clone());
         Ok((parse_result, last_cursor))
     }
 }

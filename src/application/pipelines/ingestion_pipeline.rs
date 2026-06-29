@@ -1,13 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::Ok;
 
-use uuid::Uuid;
 
-use crate::{
-    application::ingestion::source_registry::SourceRegistry,
-    core::traits::pipeline::pipeline_trait::PipelineTrait,
-};
+use crate::application::ingestion::source_registry::SourceRegistry;
 
 pub struct IngestionPipeline {
     pub source: Arc<SourceRegistry>,

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, QueryBuilder};
-use tracing::{info, instrument};
+use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -187,11 +187,12 @@ impl DataFetcherJson for AtsCandidateSource {
         let mut qb = QueryBuilder::new(&sql);
 
         let parse_result =
-            fetch_data_json::<AtsCandidateIngestionModel>(&mut qb, filters, &self.pool.pool).await;
+            fetch_data_json::<AtsCandidateIngestionModel>(&mut qb, filters, &self.pool.pool, None)
+                .await;
 
         match parse_result {
             Ok(result) => {
-                tracing::info!(" candidate source {:?}", result.clone());
+                tracing::debug!(" candidate source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {
@@ -207,9 +208,9 @@ impl SourceIncrementalExtract for AtsCandidateSource {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        strategy_enum: &LoadEnum,
+        _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
-        tracing::info!("extract cursor: {:?}, limit: {}", cursor, limit);
+        tracing::debug!("extract cursor: {:?}, limit: {}", cursor, limit);
         let sql_query = format!("SELECT * FROM {}", self.table().table_name());
 
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
@@ -225,23 +226,20 @@ impl SourceIncrementalExtract for AtsCandidateSource {
 
         match result {
             Ok(result) => {
-                info!("result candidate ingestion : {:?}", result.iter().clone());
-                let last_cursor: Option<Uuid> = match result.last() {
-                    None => None,
-                    Some(last) => Some(last.id),
-                };
+                debug!("result candidate ingestion : {:?}", result.iter().clone());
+                let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
 
-                tracing::info!("result ingestion: {:?}", result.iter().clone());
+                tracing::debug!("result ingestion: {:?}", result.iter().clone());
                 let parse_result = result
                     .iter()
-                    .map(|f| serde_json::to_value(f))
+                    .map(serde_json::to_value)
                     .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-                tracing::info!(" candidate source {:?}", parse_result.clone());
+                tracing::debug!(" candidate source {:?}", parse_result.clone());
                 Ok((parse_result, last_cursor))
             }
             Err(e) => {
-                info!("errr {:?}", e);
+                debug!("errr {:?}", e);
                 return Err(e.into());
             }
         }

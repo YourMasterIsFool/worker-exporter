@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use axum::{extract::State, response::IntoResponse, Json};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::{
-    app_state::AppState, application::usecases::usecases, domain::logging::entity::LoggingEntity,
+    app_state::AppState,
     errors::AppError,
 };
 

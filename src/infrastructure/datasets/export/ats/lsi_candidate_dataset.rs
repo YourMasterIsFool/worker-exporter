@@ -1,25 +1,14 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    hash::Hash,
-    sync::{Arc, WaitTimeoutResult},
-};
+use std::{collections::HashMap, sync::Arc};
 
-use crate::{
-    application::grpcs::facilitator::S3FacilitatorGrpc,
-    core::traits::extractor::incremental_source::WhereField as CoreWhereField,
-    infrastructure::ingestion::ats::{
-        applicant::applicant_bucket,
-        candidate::{candidate, candidate_client_field, education},
-        vacancy::vacancy,
-    },
-};
+use crate::application::grpcs::{ats::decryptor::DecryptRequest, gprc::GrpcService};
 
 use anyhow::anyhow;
-use bigdecimal::BigDecimal;
-use chrono::{format::Numeric, NaiveDateTime};
+
 use serde::{Deserialize, Serialize};
-use sqlx::{query::Query, QueryBuilder};
-use tracing::info;
+use sqlx::QueryBuilder;
+use tokio::task::JoinSet;
+use tracing::debug;
+
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,8 +34,8 @@ pub struct LsiCandidateDatasetRow {
     pub dob: String,
     pub religion: String,
     pub marital_status: Option<String>,
-    pub height: i16,
-    pub weight: i16,
+    pub height: String,
+    pub weight: String,
     pub nationality: Option<String>,
     pub ktp_street: Option<String>,
     pub ktp_province_id: Option<String>,
@@ -78,18 +67,10 @@ use crate::{
     },
     core::{
         datasets::dataset_trait::Dataset,
-        traits::{
-            load::LoadEnum,
-            strategy::{self, registry::Registry},
-            writter::writter_trait::ExportRow,
-        },
+        traits::{load::LoadEnum, writter::writter_trait::ExportRow},
         types::WhereField,
     },
-    infrastructure::{
-        db::ats_client::AtsClient,
-        ingestion::ats::{candidate::experient, types},
-        warehouse::snapshots::organization::tenants::query::TenantPoolQuerySnapshot,
-    },
+    infrastructure::db::ats_client::AtsClient,
 };
 
 #[derive(Clone)]
@@ -97,6 +78,7 @@ pub struct LsiCandidateDataset {
     pub client: Arc<AtsClient>,
     pub source: Arc<SourceRegistry>,
     pub data_fetcher: Arc<DataFetcherJsonRegistry>,
+    pub grpc_service: Arc<GrpcService>,
 }
 
 impl LsiCandidateDataset {
@@ -135,10 +117,12 @@ impl LsiCandidateDataset {
         data: &Vec<serde_json::Value>,
     ) {
         for key in data {
-            if let (Some(candidate_id), Some(key_field)) =
-                (key.get("parent_id"), key.get("field_key"))
-            {
+            if let (Some(candidate_id), Some(key_field)) = (
+                key.get("parent_id").and_then(|v| v.as_str()), // ✅ as_str()
+                key.get("field_key").and_then(|v| v.as_str()), // ✅ as_str()
+            ) {
                 map.insert(format!("{}_{}", candidate_id, key_field), key.clone());
+                // hasil: "019efc8f-46bf-793b-a3eb-8ab8342322de_height" ✅
             }
         }
     }
@@ -178,7 +162,7 @@ impl Dataset for LsiCandidateDataset {
         let mut map_master_data = HashMap::<String, String>::new();
         let mut map_custom_fields = HashMap::<String, serde_json::Value>::new();
 
-        if let LoadEnum::Select(f, c) = strategy_enum {
+        if let LoadEnum::Select(_f, c) = strategy_enum {
             if let Some(c) = c {
                 columns = c.clone();
             }
@@ -193,7 +177,7 @@ impl Dataset for LsiCandidateDataset {
         let candidate_field_fetcher = self.data_fetcher.get("ats_candidate_field_fetcher")?;
         let experient_fetcher = self.data_fetcher.get("ats_experience_fetcher")?;
         // let experient_source = self.source.get("oltp_ats_experience_source")?;
-        // let geo_fetcher = self.data_fetcher.get("master_geo_fetcher")?;
+        let geo_fetcher = self.data_fetcher.get("master_geo_fetcher")?;
         let master_items_fetcher = self.data_fetcher.get("master_master_items_fetcher")?;
 
         let mut master_data_fetch: HashMap<String, String> = HashMap::new();
@@ -249,12 +233,20 @@ impl Dataset for LsiCandidateDataset {
             value: None,
         }];
 
-        let candidate_client_filter = vec![WhereField {
-            field: "parent_id".into(),
-            operator: "=".into(),
-            values: Some(candidate_ids.clone()),
-            value: None,
-        }];
+        let candidate_client_filter = vec![
+            WhereField {
+                field: "parent_id".into(),
+                operator: "=".into(),
+                values: Some(candidate_ids.clone()),
+                value: None,
+            },
+            WhereField {
+                field: "tenant_id".into(),
+                operator: "=".into(),
+                values: Some(vec!["019e95a5-f5f3-7dd8-952b-0ce16845d9bd".to_string()]),
+                value: None,
+            },
+        ];
         let vacancy_filter = vec![WhereField {
             field: "id".into(),
             operator: "=".into(),
@@ -267,13 +259,106 @@ impl Dataset for LsiCandidateDataset {
             values: Some(candidate_ids.clone()),
             value: None,
         }];
-        let candidate_fetcher_data = candidate_fetcher.fetch(Some(candidate_filter)).await?;
-        let education_fetcher_data = education_fetcher.fetch(Some(education_filter)).await?;
-        let experient_fetcher_data = experient_fetcher.fetch(Some(experient_filter)).await?;
-        let candidate_client_fetcher_data = candidate_field_fetcher
-            .fetch(Some(candidate_client_filter))
+
+        let mut identity_number_encrypt_after_decrypt_vec = Vec::with_capacity(candidate_ids.len());
+        // let mut address_after_decrypt_vec = Vec::with_capacity(candidate_ids.len());
+        //fetch all paralelly
+        let (
+            candidate_fetcher_data,
+            education_fetcher_data,
+            experient_fetcher_data,
+            candidate_client_fetcher_data,
+            vacancy_fetcher_data,
+        ) = tokio::try_join!(
+            candidate_fetcher.fetch(Some(candidate_filter)),
+            education_fetcher.fetch(Some(education_filter)),
+            experient_fetcher.fetch(Some(experient_filter)),
+            candidate_field_fetcher.fetch(Some(candidate_client_filter)),
+            vacancy_fetcher.fetch(Some(vacancy_filter)),
+        )?;
+
+        let identity_number_encrypt_fetcher = candidate_fetcher_data
+            .iter()
+            .map(|c| {
+                c.get("identity_number_encrypt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            })
+            .collect::<Vec<_>>();
+
+        tracing::info!(
+            "IDENTITY NUMBER ENCRYPT FETCHER: {:?}",
+            identity_number_encrypt_fetcher
+        );
+        // let address_after_decrypt_fetcher = candidate_fetcher_data
+        //     .iter()
+        //     .map(|c| {
+        //         c.get("address_after_decrypt")
+        //             .and_then(|v| v.as_str())
+        //             .unwrap_or("")
+        //     })
+        //     .collect::<Vec<_>>();
+        //
+
+        let ats_decryptor_grpc = self.grpc_service.ats_decryptor_grpc.clone();
+
+        let decrypted = ats_decryptor_grpc
+            .decrypt(DecryptRequest {
+                ciphertext: "QnJhbmRvbkxlZUVuY3J5cHQxMjM0NTY3ODkwMTIzNDU2Nzg=".to_string(),
+            })
             .await?;
-        let vacancy_fetcher_data = vacancy_fetcher.fetch(Some(vacancy_filter)).await?;
+
+        let decrypted = decrypted.plaintext;
+        tracing::info!("decrypted: {}", decrypted);
+
+        // let mut set = JoinSet::new();
+        // for identity in identity_number_encrypt_fetcher {
+        //     let client = self.grpc_service.ats_decryptor_grpc.clone(); // Pastikan clone-able
+        //     let cipher = identity.to_string();
+
+        //     set.spawn(async move { client.decrypt(DecryptRequest { ciphertext: cipher }).await });
+        // }
+
+        // // 2. Ambil hasilnya saat selesai (tidak harus berurutan)
+        // while let Some(res) = set.join_next().await {
+        //     match res {
+        //         Ok(Ok(decrypted)) => {
+        //             identity_number_encrypt_after_decrypt_vec.push(decrypted.plaintext);
+        //         }
+        //         Ok(Err(e)) => {
+        //             tracing::error!("gRPC decrypt error: {:?}", e);
+        //             identity_number_encrypt_after_decrypt_vec.push("-".to_string());
+        //         }
+        //         Err(e) => {
+        //             tracing::error!("Task paniced: {:?}", e);
+        //         }
+        //     }
+        // }
+
+        // for (identity, future) in identity_number_encrypt_fetcher.iter().zip(decryption_futures) {
+        //     let decrypted_identity = future.await?;
+        //     let plain_text = decrypted_identity.plaintext.to_string();
+        //     identity_number_encrypt_after_decrypt_vec.push(plain_text);
+        // }
+
+        // for identity in identity_number_encrypt_after_decrypt_vec.iter() {
+        //     let fetch = self
+        //         .grpc_service
+        //         .ats_decryptor_grpc
+        //         .decrypt(DecryptRequest {
+        //             ciphertext: identity.to_string(),
+        //         });
+        //     let decrypted_identity = fetch.await?;
+        //     let plain_text = decrypted_identity.plaintext.to_string();
+        //     identity_number_encrypt_after_decrypt_vec.push(plain_text);
+        // }
+        // let candidate_fetcher_data = candidate_fetcher.fetch(Some(candidate_filter)).await?;
+        // let education_fetcher_data = education_fetcher.fetch(Some(education_filter)).await?;
+        // let experient_fetcher_data = experient_fetcher.fetch(Some(experient_filter)).await?;
+        // let candidate_client_fetcher_data = candidate_field_fetcher
+        //     .fetch(Some(candidate_client_filter))
+        //     .await?;
+        // let vacancy_fetcher_data = vacancy_fetcher.fetch(Some(vacancy_filter)).await?;
 
         let vacancy_mapper_data: HashMap<String, String> = vacancy_fetcher_data
             .iter()
@@ -284,6 +369,29 @@ impl Dataset for LsiCandidateDataset {
             })
             .collect();
         self.mapper_custom_fileds(&mut map_custom_fields, &candidate_client_fetcher_data);
+
+        debug!("CANDIDATE EXPERIENT : {:?}", experient_fetcher_data);
+        debug!("CANDIDATE CLIENT : {:?}", candidate_client_fetcher_data);
+
+        debug!("CANDIDATE CLIENT CUSTOM_FIELDS : {:?}", map_custom_fields);
+        debug!("CANDIDATE FETCHER DATA : {:?}", candidate_fetcher_data);
+        debug!("VACANCY FETCHER DATA : {:?}", vacancy_fetcher_data);
+        debug!("applicants count: {}", applicants.len());
+        debug!(
+            "candidate_fetcher_data count: {}",
+            candidate_fetcher_data.len()
+        );
+        debug!(
+            "education_fetcher_data count: {}",
+            education_fetcher_data.len()
+        );
+        debug!(
+            "experient_fetcher_data count: {}",
+            experient_fetcher_data.len()
+        );
+        debug!("candidate_ids count: {}", candidate_ids.len());
+
+        debug!("map_master_data count: {}", map_master_data.len());
 
         // get master gender;
         let mut master_ids = Vec::new();
@@ -301,6 +409,14 @@ impl Dataset for LsiCandidateDataset {
                     master_ids.push(id.to_string());
                 } else {
                     master_data_fetch.insert(id.to_string(), id.to_string());
+                }
+            }
+
+            if let Some(id) = candidate.get("birth_place").and_then(|v| v.as_str()) {
+                if Uuid::parse_str(id).is_ok() {
+                    master_geo_ids.push(id.to_string());
+                } else {
+                    geo_master.insert(id.to_string(), id.to_string());
                 }
             }
 
@@ -427,23 +543,57 @@ impl Dataset for LsiCandidateDataset {
         }
 
         for education in &education_fetcher_data {
+            if let Some(id) = education.get("industry").and_then(|v| v.as_str()) {
+                if Uuid::parse_str(id).is_ok() {
+                    master_ids.push(id.to_string());
+                } else {
+                    map_master_data.insert(id.to_string(), id.to_string());
+                }
+            }
+
+            if let Some(id) = education.get("level").and_then(|v| v.as_str()) {
+                if Uuid::parse_str(id).is_ok() {
+                    master_ids.push(id.to_string());
+                } else {
+                    map_master_data.insert(id.to_string(), id.to_string());
+                }
+            }
             if let Some(id) = education.get("major").and_then(|v| v.as_str()) {
                 if Uuid::parse_str(id).is_ok() {
                     master_ids.push(id.to_string());
                 } else {
-                    master_data_fetch.insert(id.to_string(), id.to_string());
+                    map_master_data.insert(id.to_string(), id.to_string());
                 }
             }
             if let Some(id) = education.get("institute_name").and_then(|v| v.as_str()) {
                 if Uuid::parse_str(id).is_ok() {
                     master_ids.push(id.to_string());
                 } else {
-                    master_data_fetch.insert(id.to_string(), id.to_string());
+                    map_master_data.insert(id.to_string(), id.to_string());
                 }
             }
         }
 
-        info!("master geo ids {:?}", master_geo_ids.clone().len());
+        if !master_geo_ids.is_empty() {
+            let geo_filter = Some(vec![WhereField {
+                field: "id".to_string(),
+                operator: "=".into(),
+                value: None,
+                values: Some(master_geo_ids),
+            }]);
+
+            let geo_data = geo_fetcher.fetch(geo_filter).await?;
+
+            for geo in &geo_data {
+                if let (Some(id), Some(name)) = (
+                    geo.get("id").and_then(|v| v.as_str()),
+                    geo.get("name").and_then(|v| v.as_str()),
+                ) {
+                    geo_master.insert(id.to_string(), name.to_string());
+                }
+            }
+        }
+
         let master_items_filter = Some(vec![WhereField {
             field: "id".to_string(),
             operator: "=".into(), // Gunakan IN
@@ -459,13 +609,20 @@ impl Dataset for LsiCandidateDataset {
             })
             .collect::<HashMap<String, _>>();
 
-        let experient_mapper_data = experient_fetcher_data
-            .iter()
-            .map(|c| {
-                let id = c.get("candidate_id").and_then(|v| v.as_str()).unwrap_or("");
-                (id.to_string(), c.clone())
-            })
-            .collect::<HashMap<String, _>>();
+        debug!("EDUCATION MAPPER DATA {:?}", education_mapper_data);
+
+        let mut experient_mapper_data: HashMap<String, serde_json::Value> = HashMap::new();
+        for c in &experient_fetcher_data {
+            let id = c
+                .get("candidate_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            experient_mapper_data.entry(id).or_insert(c.clone());
+        }
+
+        debug!("EXPRIENT MAPPER DATA : {:?}", experient_mapper_data);
 
         let list_master_data = master_items_fetcher.fetch(master_items_filter).await?;
 
@@ -478,12 +635,17 @@ impl Dataset for LsiCandidateDataset {
                 map_master_data.insert(id.to_string(), name.to_string());
             }
         }
-        info!("master data bang {:?}", list_master_data);
+
         let next_cursor = next_cursor.map(|c| c.to_string());
 
         let mut rows: Vec<LsiCandidateDatasetRow> = vec![];
 
-        for applicant in &applicants {
+        for (index, applicant) in applicants.iter().enumerate() {
+            let identity_number = identity_number_encrypt_after_decrypt_vec
+                .get(index)
+                .cloned()
+                .unwrap_or_default();
+
             let candidate_id = applicant
                 .get("candidate_id")
                 .and_then(|v| v.as_str())
@@ -516,25 +678,14 @@ impl Dataset for LsiCandidateDataset {
 
             let mut fullname = String::from("-");
 
-            if let Some(first_name) = candidate_map.get("first_name") {
-                if let Some(first_name_str) = first_name.as_str() {
-                    fullname.push_str(first_name_str);
-                }
-            }
-            if let Some(last_name) = candidate_map.get("last_name") {
-                if let Some(last_name_str) = last_name.as_str() {
-                    fullname.push_str(" ");
-                    fullname.push_str(last_name_str);
+            if let Some(name) = candidate_map.get("name") {
+                if let Some(name_str) = name.as_str() {
+                    fullname.push_str(name_str);
                 }
             }
 
             let candidate_education = education_mapper_data
-                .get(
-                    applicant
-                        .get("candidate_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(""),
-                )
+                .get(candidate_id.as_str())
                 .cloned()
                 .unwrap_or_default();
             let candidate_gender = candidate_map
@@ -547,11 +698,6 @@ impl Dataset for LsiCandidateDataset {
                 .and_then(|v| v.as_str())
                 .unwrap_or("-")
                 .to_string();
-
-            let candidate_level = candidate_education
-                .get("level")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-");
 
             let candidate_education_start = candidate_education
                 .get("start_date")
@@ -590,6 +736,11 @@ impl Dataset for LsiCandidateDataset {
                 .and_then(|v| v.as_str())
                 .unwrap_or("-");
 
+            let institute_name = map_master_data
+                .get(candidate_institute)
+                .cloned()
+                .unwrap_or("-".to_string());
+
             let education = map_master_data
                 .get(candidate_level)
                 .cloned()
@@ -601,10 +752,6 @@ impl Dataset for LsiCandidateDataset {
 
             let education_level = map_master_data
                 .get(candidate_level)
-                .cloned()
-                .unwrap_or("-".to_string());
-            let institute_name = map_master_data
-                .get(candidate_institute)
                 .cloned()
                 .unwrap_or("-".to_string());
 
@@ -623,66 +770,76 @@ impl Dataset for LsiCandidateDataset {
                 .unwrap_or("-")
                 .to_string();
 
-            let candidate_id = candidate_map
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
+            let birth_place_name = geo_master
+                .get(&birth_place)
+                .cloned()
+                .unwrap_or("-".to_string());
 
-            let weight = map_custom_fields
-                .get(&format!("{}_{}", candidate_id, "weight"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i16;
-            let height = map_custom_fields
-                .get(&format!("{}_{}", candidate_id, "height"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i16;
-            let nationality = map_custom_fields
-                .get(&format!("{}_{}", candidate_id, "nationality"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
+            let log_candidate_id = candidate_id.clone();
 
-            let other_internal_family_name = map_custom_fields
-                .get(&format!(
+            let weight = self.get_map_custom_field(
+                &format!("{}_{}", candidate_id, "weight"),
+                &map_custom_fields,
+            );
+            let height = self.get_map_custom_field(
+                &format!("{}_{}", candidate_id, "height"),
+                &map_custom_fields,
+            );
+
+            let nationality = self.get_map_custom_field(
+                &format!("{}_{}", candidate_id, "nationality"),
+                &map_custom_fields,
+            );
+
+            let other_internal_family_name = self.get_map_custom_field(
+                &format!(
                     "{}_{}",
-                    candidate_id, "other_internal_family_name"
-                ))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let other_internal_family_relationship = map_custom_fields
-                .get(&format!(
+                    &candidate_id,
+                    "otherInternalFamilyName
+"
+                ),
+                &map_custom_fields,
+            );
+
+            let other_internal_family_relationship = self.get_map_custom_field(
+                &format!(
                     "{}_{}",
-                    candidate_id, "other_internal_family_relationship"
-                ))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let other_internal_family_position = map_custom_fields
-                .get(&format!(
+                    &candidate_id,
+                    "otherInternalFamilyRelationship
+"
+                ),
+                &map_custom_fields,
+            );
+
+            let other_internal_family_position = self.get_map_custom_field(
+                &format!(
                     "{}_{}",
-                    candidate_id, "other_internal_family_position"
-                ))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let other_internal_family_branch = map_custom_fields
-                .get(&format!(
+                    &candidate_id,
+                    "otherInternalFamilyPosition
+"
+                ),
+                &map_custom_fields,
+            );
+
+            let other_internal_family_branch = self.get_map_custom_field(
+                &format!(
                     "{}_{}",
-                    candidate_id, "other_internal_family_branch"
-                ))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
-            let other_internal_family_branch_location = map_custom_fields
-                .get(&format!(
+                    &candidate_id,
+                    "otherInternalFamilyBranch
+"
+                ),
+                &map_custom_fields,
+            );
+
+            let other_internal_family_branch_location = self.get_map_custom_field(
+                &format!(
                     "{}_{}",
-                    candidate_id, "other_internal_family_branch_location"
-                ))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string();
+                    &candidate_id,
+                    "otherInternalFamilyBranchLocation
+"
+                ),
+                &map_custom_fields,
+            );
 
             let candidate_marital_status = candidate_map
                 .get("marital_status")
@@ -709,21 +866,12 @@ impl Dataset for LsiCandidateDataset {
                 .and_then(|v| v.as_str())
                 .unwrap_or("-");
 
-            let experient_mapper_data = experient_mapper_data
+            let candidate_experiente = experient_mapper_data
                 .get(&candidate_id)
                 .cloned()
                 .unwrap_or_default();
-            let candidate_experiente = experient_mapper_data
-                .get(
-                    applicant
-                        .get("candidate_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(""),
-                )
-                .cloned()
-                .unwrap_or_default();
 
-            let industry = candidate_experiente
+            let _industry = candidate_experiente
                 .get("industry")
                 .and_then(|v| v.as_str())
                 .unwrap_or("-");
@@ -870,6 +1018,11 @@ impl Dataset for LsiCandidateDataset {
                 .and_then(|v| v.as_str())
                 .unwrap_or("-");
 
+            let industry = map_master_data
+                .get(candidate_industry)
+                .cloned()
+                .unwrap_or("-".to_string());
+
             rows.push(LsiCandidateDatasetRow {
                 vacancy_name: Some(vacancy_name),
                 date_applied: applicant_date.to_string(),
@@ -881,8 +1034,8 @@ impl Dataset for LsiCandidateDataset {
                 education: Some(education),
                 major: Some(major),
 
-                level: education_level,
-                institute_name: Some(institute_name),
+                level: education_level.to_string(),
+                institute_name: Some(institute_name.to_string()),
 
                 start_date: candidate_education_start,
                 weight,
@@ -890,9 +1043,9 @@ impl Dataset for LsiCandidateDataset {
 
                 nationality: Some(nationality),
                 end_date: candidate_education_end,
-                birth_place: Some(birth_place),
+                birth_place: Some(birth_place_name),
                 academic_score: Some(academic_score),
-                candidate_id,
+                candidate_id: log_candidate_id.clone(),
                 other_internal_family_name: Some(other_internal_family_name),
                 other_internal_family_relationship: Some(other_internal_family_relationship),
                 other_internal_family_position: Some(other_internal_family_position),
@@ -917,7 +1070,7 @@ impl Dataset for LsiCandidateDataset {
                 ktp_sub_district_id: Some(ktp_sub_district_id),
                 ktp_postal_code: Some(ktp_postal_code.to_string()),
                 domicile_sub_district_id: Some(domicile_sub_district_id),
-                identity_number_encrypt: Some("tes".to_string()),
+                identity_number_encrypt: Some(identity_number),
                 industry: Some(industry.to_string()),
                 dob: dob.to_string(),
             });
@@ -927,7 +1080,7 @@ impl Dataset for LsiCandidateDataset {
             .map(|t| ExportRow::validate_json(t, &columns))
             .collect::<anyhow::Result<Vec<ExportRow>>>()?;
 
-        info!("result rows data {:?}", rows.clone());
+        debug!("result rows data {:?}", rows.clone());
         Ok((rows, next_cursor))
     }
 }

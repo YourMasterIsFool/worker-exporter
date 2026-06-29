@@ -1,7 +1,6 @@
 use ::anyhow::Result;
 use uuid::Uuid;
 
-use crate::core::traits::extractor::incremental_source::WhereField;
 use crate::core::traits::load::LoadEnum;
 
 #[async_trait::async_trait]

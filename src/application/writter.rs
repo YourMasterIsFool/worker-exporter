@@ -21,6 +21,12 @@ pub struct WritterRegistry {
     pub maps: HashMap<String, WritterFactory>,
 }
 
+impl Default for WritterRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WritterRegistry {
     pub fn new() -> Self {
         let maps = HashMap::new();
@@ -33,7 +39,7 @@ impl WritterRegistry {
         } else {
             warn!("registry not found");
 
-            return Err(anyhow::anyhow!("writter not found"));
+            Err(anyhow::anyhow!("writter not found"))
         }
     }
     pub fn register<F>(&mut self, name: &str, writter: F) -> anyhow::Result<()>

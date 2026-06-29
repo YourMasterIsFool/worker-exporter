@@ -5,7 +5,8 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use tracing::info; // 1. Tambahkan import ini
+use tracing::debug;
+ // 1. Tambahkan import ini
 
 use crate::{app_state::AppState, errors::AppError};
 
@@ -21,6 +22,7 @@ pub async fn post_detail_file_http(
     let keys = payload.keys.clone();
 
     let download_url_handler = state
+        .grpc_service
         .s3_facilitator_grpc
         .get_download_url(vec![keys.clone()])
         .await;
@@ -31,11 +33,11 @@ pub async fn post_detail_file_http(
 
             if let Some(item) = response_inner.items.first() {
                 let aws_presigned_url = &item.url;
-                info!("Redirecting user to S3 for file ID: {}", keys);
+                debug!("Redirecting user to S3 for file ID: {}", keys);
 
                 Redirect::to(aws_presigned_url).into_response()
             } else {
-                info!(
+                debug!(
                     "gRPC return success but items list is empty for ID: {}",
                     keys
                 );
@@ -43,7 +45,7 @@ pub async fn post_detail_file_http(
             }
         }
         Err(grpc_status) => {
-            info!(
+            debug!(
                 "gRPC Error or download keys {} not found. Status: {}",
                 keys,
                 grpc_status.message()

@@ -1,6 +1,6 @@
-use std::{f32, sync::Arc};
+use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder}; // Untuk jsonb
 use uuid::Uuid;
@@ -18,16 +18,31 @@ use crate::{
         types::WhereField,
     },
     infrastructure::{
-        db::{ats_client::AtsClient, master_client::MasterClient},
-        ingestion::{ats::types::AtsIngestionTable, master::types::MasterIngestionTable},
+        db::master_client::MasterClient,
+        ingestion::master::types::MasterIngestionTable,
     },
 };
+
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::Type)]
+#[sqlx(type_name = "geo_nodes_level_enum")]
+pub enum GeoNodesLevel {
+    #[sqlx(rename = "country")]
+    Country,
+    #[sqlx(rename = "adm1")]
+    Adm1,
+    #[sqlx(rename = "adm2")]
+    Adm2,
+    #[sqlx(rename = "adm3")]
+    Adm3,
+    #[sqlx(rename = "adm4")]
+    Adm4,
+}
 // Untuk numeric
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct MasterGeoModel {
     pub id: Uuid,
-    pub level: String,
+    pub level: GeoNodesLevel,
     pub parent_id: Option<Uuid>,
     pub code: String,
     pub name: String,
@@ -35,8 +50,8 @@ pub struct MasterGeoModel {
     pub is_active: bool,
     pub sort_order: Option<i32>,
     pub metadata: Option<JsonValue>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 pub struct MasterGeoSource {
     pub pool: Arc<MasterClient>,
@@ -79,8 +94,8 @@ impl DataFetcherJson for MasterGeoSource {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
 
         let parse_result =
-            fetch_data_json::<MasterGeoModel>(&mut qb, filters, &self.pool.pool).await?;
-        tracing::info!(" master geo source {:?}", parse_result.clone());
+            fetch_data_json::<MasterGeoModel>(&mut qb, filters, &self.pool.pool, None).await?;
+        tracing::debug!(" master geo source {:?}", parse_result.clone());
         Ok(parse_result)
     }
 }
@@ -90,7 +105,7 @@ impl SourceIncrementalExtract for MasterGeoSource {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        strategy_enum: &LoadEnum,
+        _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         let sql_query = format!(
             "SELECT {} FROM {}",
@@ -109,17 +124,14 @@ impl SourceIncrementalExtract for MasterGeoSource {
             .fetch_all(&self.pool.pool)
             .await?;
 
-        let last_cursor: Option<Uuid> = match result.last() {
-            None => None,
-            Some(last) => Some(last.id),
-        };
+        let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
 
         let parse_result = result
             .iter()
-            .map(|f| serde_json::to_value(f))
+            .map(serde_json::to_value)
             .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        tracing::info!(" geo source {:?}", parse_result.clone());
+        tracing::debug!(" geo source {:?}", parse_result.clone());
         Ok((parse_result, last_cursor))
     }
 }

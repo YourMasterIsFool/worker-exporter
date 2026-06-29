@@ -2,14 +2,22 @@ use std::env;
 
 use dotenv::dotenv;
 
+#[derive(Debug)]
 pub struct Config {
     pub(crate) warehouse_db_url: String,
     pub(crate) organization_db_url: String,
     pub host: String,
     pub facilitator_grpc_url: String,
+    pub ats_grpc_url: String,
     pub port: String,
     pub(crate) master_db_url: String, // pub(crate) hris_db_url: String,
     pub(crate) ats_db_url: String,    // pub(crate) hris_db_url: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Config {
@@ -28,6 +36,8 @@ impl Config {
         let ats_database_url = env::var("ATS_DATABASE_URL").expect("ATS DATABASE URL NOT DEFINED ");
         let facilitator_grpc_url =
             env::var("FACILITATOR_GRPC_URL").expect("FACILITATOR GRPC URL NOT DEFINED ");
+
+        let ats_grpc_url = env::var("ATS_GRPC_URL").expect("ATS GRPC URL NOT DEFINED");
         // let warehouse_database_url =
         //     env::var("WAREHOUSE_DATABASE_URL").expect("WAREHOUSE DATABASE URL NOT DEFINED ");
         // let hris_database_url = env::var("HRIS_DATABASE_URL").expect(" HRIS URL NOT DEFINED ");
@@ -39,6 +49,7 @@ impl Config {
             host,
             port,
             facilitator_grpc_url,
+            ats_grpc_url,
         }
     }
 }

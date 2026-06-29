@@ -1,5 +1,5 @@
 use axum::{
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     Json,
 };
 use serde::Serialize;

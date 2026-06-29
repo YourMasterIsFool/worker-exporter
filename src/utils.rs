@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use tracing::info;
+use tracing::debug;
 
 use crate::core::traits::load::{LoadEnum, LoaderWarehouse};
 
@@ -49,7 +49,7 @@ pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: &LoadEnum) -> String {
                 columns = from_columns.join(",");
             }
 
-            info!("columns {:?}", columns);
+            debug!("columns {:?}", columns);
             let where_clause = where_fields
                 .as_ref()
                 .map(|fields| {

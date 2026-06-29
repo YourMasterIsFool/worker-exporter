@@ -7,6 +7,12 @@ use tracing::warn;
 pub struct Registry<T: ?Sized> {
     pub maps: HashMap<String, Arc<T>>,
 }
+impl<T: ?Sized> Default for Registry<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: ?Sized> Registry<T> {
     pub fn new() -> Self {
         Self {

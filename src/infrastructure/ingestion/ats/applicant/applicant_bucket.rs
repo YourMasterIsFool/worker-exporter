@@ -1,9 +1,9 @@
-use std::{f32, sync::Arc};
+use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder};
-use tracing::info;
+use tracing::debug;
 // Untuk jsonb
 use uuid::Uuid;
 
@@ -75,7 +75,7 @@ impl SourceIncrementalExtract for AtsApplicantBucketSource {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        strategy_enum: &LoadEnum,
+        _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         let sql_query = format!(
             "SELECT {} FROM {}",
@@ -96,21 +96,18 @@ impl SourceIncrementalExtract for AtsApplicantBucketSource {
 
         match result {
             Ok(result) => {
-                let last_cursor: Option<Uuid> = match result.last() {
-                    None => None,
-                    Some(last) => Some(last.id),
-                };
+                let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
 
                 let parse_result = result
                     .iter()
-                    .map(|f| serde_json::to_value(f))
+                    .map(serde_json::to_value)
                     .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-                tracing::info!(" candidate source {:?}", parse_result.clone());
+                tracing::debug!("applicant source {:?}", parse_result);
                 Ok((parse_result, last_cursor))
             }
             Err(e) => {
-                info!("errror applicant bucket {}", e);
+                debug!("errror applicant bucket {}", e);
                 Err(anyhow::anyhow!(e))
             }
         }

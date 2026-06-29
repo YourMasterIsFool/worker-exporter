@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashMap, future::Future, pin::Pin};
 
-use crate::core::traits::{grpc::GrpcExecutor, strategy::registry::Registry};
+use crate::core::traits::grpc::GrpcExecutor;
 
 pub struct GrpcWrapper<S, Req, Res> {
     pub service: S,
@@ -31,6 +31,12 @@ where
 
 pub struct GrpcRegistry {
     pub map: HashMap<String, Box<dyn GrpcExecutor>>,
+}
+
+impl Default for GrpcRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GrpcRegistry {

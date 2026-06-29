@@ -1,5 +1,3 @@
-use anyhow::bail;
-use tokio::task;
 
 use crate::{
     core::{
@@ -24,6 +22,7 @@ impl ExportRunner {
         id: &str,
         filters: Option<Vec<WhereField>>,
         cursor: &mut Option<String>,
+        limit: i64,
     ) -> anyhow::Result<()>
     where
         D: Dataset + Send + Sync + ?Sized,
@@ -53,7 +52,7 @@ impl ExportRunner {
 
         loop {
             let (result, new_cursor) = dataset
-                .fetch_batch(&strategy_enum, cursor.clone(), 100)
+                .fetch_batch(&strategy_enum, cursor.clone(), limit)
                 .await?;
             if result.is_empty() {
                 break;

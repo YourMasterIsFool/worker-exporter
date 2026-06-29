@@ -9,6 +9,12 @@ pub struct CsvExporter {
     pub written_headers: bool,
 }
 
+impl Default for CsvExporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CsvExporter {
     pub fn new() -> Self {
         Self {

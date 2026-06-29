@@ -3,6 +3,7 @@ pub mod errors;
 pub mod gprc_registry;
 pub mod grpcs;
 pub mod repositories;
+pub mod types;
 pub mod usecases;
 
 pub mod presentation;

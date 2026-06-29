@@ -2,14 +2,13 @@ use std::sync::Arc;
 
 use crate::{
     core::traits::{
-        etl::DataFetcherJson, extractor::incremental_source::FetchSource,
+        etl::DataFetcherJson,
         strategy::registry::Registry,
     },
     infrastructure::{
         db::{ats_client::AtsClient, master_client::MasterClient},
         ingestion::{
             ats::{
-                applicant::applicant_bucket::AtsApplicantBucketSource,
                 candidate::{
                     candidate::AtsCandidateSource,
                     candidate_client_field::AtsCandidateClientFieldSource,
@@ -18,10 +17,7 @@ use crate::{
                 vacancy::vacancy::AtsVacancySource,
             },
             master::{geo::MasterGeoSource, master_item::MasterMasterItemsSource},
-            organization::{
-                organization_postgres_client::OrganizatinPostgresClient,
-                sql::tenant::source::TenantSource,
-            },
+            organization::organization_postgres_client::OrganizatinPostgresClient,
         },
     },
 };
@@ -33,7 +29,7 @@ pub struct DataFetcherJsonRegistryStruct {
 }
 
 pub fn build_data_fetcher_json_registry(
-    organization_db: Arc<OrganizatinPostgresClient>,
+    _organization_db: Arc<OrganizatinPostgresClient>,
     ats_db: Arc<AtsClient>,
     master_db: Arc<MasterClient>,
 ) -> DataFetcherJsonRegistry {

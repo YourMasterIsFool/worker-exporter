@@ -3,9 +3,8 @@ use std::sync::Arc;
 use anyhow::Ok;
 
 use chrono::NaiveDateTime;
-use serde::Serialize;
-use sqlx::{query_builder, QueryBuilder};
-use tracing::{info, instrument};
+use sqlx::QueryBuilder;
+use tracing::{debug, instrument};
 
 use crate::{
     core::traits::load::{LoadEnum, LoaderWarehouse},
@@ -14,7 +13,7 @@ use crate::{
         repo::LoggingRepo,
     },
     errors::DomainError,
-    infrastructure::warehouse::{self, warehouse_client::WarehouseClient},
+    infrastructure::warehouse::warehouse_client::WarehouseClient,
     utils::build_query,
 };
 
@@ -165,7 +164,7 @@ impl LoggingRepo for LoggingWarehouse {
         let insert_enum = LoadEnum::Insert;
         let qb = build_query(self, &insert_enum);
         let sql_returning = format!("{} RETURNING id ", qb);
-        info!(" logging entity {:?}", entity);
+        debug!(" logging entity {:?}", entity);
         let result: String = sqlx::query_scalar(&sql_returning)
             .bind(entity.logging_type.to_string())
             .bind(entity.completed_at)

@@ -1,21 +1,16 @@
-use std::{
-    collections::VecDeque,
-    sync::{Arc, WaitTimeoutResult},
-};
+use std::sync::Arc;
 
-use sqlx::{query::Query, QueryBuilder};
-use tracing::info;
+use sqlx::QueryBuilder;
 
 use crate::{
     core::{
         datasets::dataset_trait::Dataset,
         traits::{
-            extractor::incremental_source::IncrementalSource, load::LoadEnum, strategy,
+            extractor::incremental_source::IncrementalSource, load::LoadEnum,
             writter::writter_trait::ExportRow,
         },
         types::WhereField,
     },
-    domain::snapshots::organization::tenant_snapshot::TenantSnapshot,
     infrastructure::warehouse::{
         snapshots::organization::tenants::query::TenantPoolQuerySnapshot,
         warehouse_client::WarehouseClient,
@@ -58,8 +53,8 @@ impl Dataset for ExportTenantDataset {
         limit: i64,
     ) -> anyhow::Result<(Vec<ExportRow>, Option<String>)> {
         let mut columns = vec![];
-        let filters: Option<Vec<WhereField>> = None;
-        if let LoadEnum::Select(f, c) = strategy_enum {
+        let _filters: Option<Vec<WhereField>> = None;
+        if let LoadEnum::Select(_f, c) = strategy_enum {
             if let Some(c) = c {
                 columns = c.clone();
             }
@@ -72,9 +67,7 @@ impl Dataset for ExportTenantDataset {
 
         let next_cursor = tenants
             .last()
-            .and_then(|f| f.get("id"))
-            .and_then(|f| Some(f.to_string()))
-            .map(|f| f);
+            .and_then(|f| f.get("id")).map(|f| f.to_string());
 
         let rows: Vec<ExportRow> = tenants
             .into_iter()

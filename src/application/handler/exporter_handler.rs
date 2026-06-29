@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Ok, Result};
-use tracing::{error, info};
+use anyhow::Ok;
 
 use crate::{
     app_state::AppState,
@@ -12,13 +11,13 @@ use crate::{
     },
 };
 
-pub struct IngestionHandler {
+pub struct ExportHandler {
     pub consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync>,
     pub app_state: Arc<AppState>,
 }
 
 #[async_trait::async_trait]
-impl JobHandler for IngestionHandler {
+impl JobHandler for ExportHandler {
     async fn handler(&self) -> anyhow::Result<()> {
         consumer_handler(
             self.consumer.clone(),

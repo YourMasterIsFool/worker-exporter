@@ -6,6 +6,7 @@ pub mod handler;
 pub mod load;
 pub mod orchestrator;
 pub mod pipeline;
+pub mod publisher;
 pub mod strategy;
 pub mod templates;
 pub mod tenants;

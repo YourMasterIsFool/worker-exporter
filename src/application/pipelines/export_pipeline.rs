@@ -1,12 +1,7 @@
 use std::sync::Arc;
 
-use anyhow::Ok;
-use uuid::Uuid;
 
-use crate::core::traits::{
-    extractor::source_incremental_extract::SourceIncrementalExtract,
-    pipeline::pipeline_trait::PipelineTrait,
-};
+use crate::core::traits::extractor::source_incremental_extract::SourceIncrementalExtract;
 
 pub struct ExportPipeline {
     pub source: Arc<dyn SourceIncrementalExtract + Send + Sync>,

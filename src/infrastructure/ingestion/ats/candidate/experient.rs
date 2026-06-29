@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, QueryBuilder};
 use tracing::instrument;
@@ -76,19 +76,21 @@ impl DataFetcherJson for AtsExperinceSource {
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         let sql = format!(
-            " SELECT {} from {} ",
+            " SELECT DISTINCT ON (candidate_id) {} from {} ",
             self.columns().join(", "),
             self.table().table_name()
         );
 
         let mut qb = QueryBuilder::new(&sql);
 
+        let order_by = Some("candidate_id, start_date DESC");
         let parse_result =
-            fetch_data_json::<AtsExperienceModel>(&mut qb, filters, &self.pool.pool).await;
+            fetch_data_json::<AtsExperienceModel>(&mut qb, filters, &self.pool.pool, order_by)
+                .await;
 
         match parse_result {
             Ok(result) => {
-                tracing::info!(" candidate source {:?}", result.clone());
+                tracing::debug!(" candidate source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {
@@ -104,7 +106,7 @@ impl SourceIncrementalExtract for AtsExperinceSource {
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        strategy_enum: &LoadEnum,
+        _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         let sql_query = format!(
             "SELECT {} FROM {}",
@@ -123,17 +125,14 @@ impl SourceIncrementalExtract for AtsExperinceSource {
             .fetch_all(&self.pool.pool)
             .await?;
 
-        let last_cursor: Option<Uuid> = match result.last() {
-            None => None,
-            Some(last) => Some(last.id),
-        };
+        let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
 
         let parse_result = result
             .iter()
-            .map(|f| serde_json::to_value(f))
+            .map(serde_json::to_value)
             .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        tracing::info!(" candidate source {:?}", parse_result.clone());
+        tracing::debug!(" candidate source {:?}", parse_result.clone());
         Ok((parse_result, last_cursor))
     }
 }

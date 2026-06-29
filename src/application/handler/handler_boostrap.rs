@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use tracing::{error, info};
+use tracing::{debug, error};
 
 use crate::{
-    app_state::{self, AppState},
-    application::orchestrator::orchestrator_registry::{self, OrchestratorRegistry},
+    application::orchestrator::orchestrator_registry::OrchestratorRegistry,
     core::traits::{
         consumer::{Consumer, ConsumerMessage},
         handler::JobHandler,
@@ -48,7 +47,7 @@ pub async fn consumer_handler(
                 }
             };
 
-            info!("debug orchestrator job {:?}", job.clone());
+            debug!("debug orchestrator job {:?}", job.clone());
             // jika ada error di configuration orchestrator maka orchestrator tidak akan dijalankan
             // dan akan memunculkan log lalu consumer di ack
 

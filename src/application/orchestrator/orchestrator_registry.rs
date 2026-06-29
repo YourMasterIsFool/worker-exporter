@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use crate::{
     application::{
-        dataset::DatasetRegistry, grpcs::facilitator::S3FacilitatorGrpc, load::LoadRegistry,
+        dataset::DatasetRegistry, grpcs::gprc::GrpcService, load::LoadRegistry,
         orchestrator::export_orchestrator::ExportOrchestrator,
         pipelines::pipeline_registry::PipelineRegistry, writter::WritterRegistry,
     },
-    core::traits::{orchestrator::Orchestrator, strategy::registry::Registry},
+    core::traits::{
+        orchestrator::Orchestrator, publisher::Publisher, strategy::registry::Registry,
+    },
     domain::logging::repo::LoggingRepo,
 };
 
@@ -17,7 +19,8 @@ pub fn build_orchestrator_registry(
     loader: Arc<LoadRegistry>,
     logging: Arc<dyn LoggingRepo>,
     dataset: Arc<DatasetRegistry>,
-    s3_grpc: Arc<S3FacilitatorGrpc>,
+    grpc_service: Arc<GrpcService>,
+    publisher: Arc<dyn Publisher>,
 ) -> OrchestratorRegistry {
     let mut registry = OrchestratorRegistry::new();
     registry.register(
@@ -28,7 +31,8 @@ pub fn build_orchestrator_registry(
             load: loader,
             logging,
             dataset,
-            s3_grpc,
+            grpc_service,
+            publisher,
         }),
     );
     registry
