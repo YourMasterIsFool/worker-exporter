@@ -36,4 +36,15 @@ impl AtsDecryptorGrpc {
             .await
             .map(|response| response.into_inner())
     }
+
+    pub async fn batch_decrypt(
+        &self,
+        request: decryptor::DecryptBatchRequest,
+    ) -> Result<decryptor::DecryptBatchResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        client
+            .decrypt_batch(tonic::Request::new(request))
+            .await
+            .map(|response| response.into_inner())
+    }
 }

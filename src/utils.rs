@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use tracing::debug;
 
-use crate::core::traits::load::{LoadEnum, LoaderWarehouse};
+use crate::core::traits::load::{LoadEnum, LoaderPersitence};
 
 pub fn reformated_value(key: &str, value: &serde_json::Value) -> Result<String> {
     let val = value[key]
@@ -14,7 +14,7 @@ pub fn reformated_value(key: &str, value: &serde_json::Value) -> Result<String> 
     Ok(val)
 }
 
-pub fn build_query<T: LoaderWarehouse>(loader: &T, mode: &LoadEnum) -> String {
+pub fn build_query<T: LoaderPersitence>(loader: &T, mode: &LoadEnum) -> String {
     let table = loader.table();
     let mut columns = loader.columns().join(",");
     let placeholders = loader

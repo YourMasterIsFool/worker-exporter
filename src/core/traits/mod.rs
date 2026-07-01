@@ -1,4 +1,5 @@
 pub mod consumer;
+pub mod dataset_trait;
 pub mod etl;
 pub mod extractor;
 pub mod grpc;

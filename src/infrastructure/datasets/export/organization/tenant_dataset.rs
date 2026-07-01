@@ -2,20 +2,15 @@ use std::sync::Arc;
 
 use sqlx::QueryBuilder;
 
-use crate::{
-    core::{
-        datasets::dataset_trait::Dataset,
-        traits::{
-            extractor::incremental_source::IncrementalSource, load::LoadEnum,
-            writter::writter_trait::ExportRow,
-        },
-        types::WhereField,
+use crate::core::{
+    traits::{
+        dataset_trait::Dataset, extractor::incremental_source::IncrementalSource,
+        load::LoadEnum, writter::writter_trait::ExportRow,
     },
-    infrastructure::warehouse::{
-        snapshots::organization::tenants::query::TenantPoolQuerySnapshot,
-        warehouse_client::WarehouseClient,
-    },
+    types::WhereField,
 };
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::query::TenantPoolQuerySnapshot;
 
 #[derive(Clone)]
 pub struct ExportTenantDataset {
@@ -67,7 +62,8 @@ impl Dataset for ExportTenantDataset {
 
         let next_cursor = tenants
             .last()
-            .and_then(|f| f.get("id")).map(|f| f.to_string());
+            .and_then(|f| f.get("id"))
+            .map(|f| f.to_string());
 
         let rows: Vec<ExportRow> = tenants
             .into_iter()

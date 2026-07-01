@@ -21,7 +21,6 @@ async fn build_orchestrator(
     msg: &str,
 ) -> anyhow::Result<()> {
     let orchestrator = orchestrator_registry.get(orchestrator_type)?;
-
     orchestrator.run(orchestrator_job, msg).await?;
 
     Ok(())

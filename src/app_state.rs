@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use excelstream::ExcelWriter;
 use redis::aio::ConnectionManager;
 
 use crate::{
@@ -21,5 +22,6 @@ pub struct AppState {
     pub grpc_service: Arc<GrpcService>,
     pub publisher: Arc<dyn Publisher + Send + Sync>,
     pub manager: Arc<ConnectionManager>,
-    pub usecases: Arc<Usecases>, // pub writter_registry: Arc<WritterRegistry>,
+    pub usecases: Arc<Usecases>,
+    // pub writter_registry: Arc<WritterRegistry>,
 }

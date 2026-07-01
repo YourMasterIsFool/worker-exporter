@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  worker-exporter:
+    build:
+      dockerfile: Dockerfile
+      context: .
+    container_name: worker-exporter
+    env_file:
+      - .env.production # ← Use dev env
+    ports:
+      - "9090:8080" # Different port dari production
+
+    # Dev environment
+    environment:
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=full
+
+    restart: unless-stopped
+
+    # Less resource for dev
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2g
+        reservations:
+          cpus: "1"
+          memory: 512m

@@ -2,7 +2,7 @@ use anyhow::{Ok, Result};
 use uuid::Uuid;
 
 use crate::{
-    core::traits::{load::IncrementalLoad, pipeline::pipeline_trait::PipelineTrait},
+    core::traits::{load::IncrementalLoadPersitence, pipeline::pipeline_trait::PipelineTrait},
     domain::logging::repo::LoggingRepo,
 };
 pub struct LoaderRunner;
@@ -11,7 +11,7 @@ impl LoaderRunner {
     pub async fn run<P, L, W>(ingestion: &P, load: &L, logging: &W, stream_id: &str) -> Result<i64>
     where
         P: PipelineTrait + Send + Sync + ?Sized,
-        L: IncrementalLoad + Send + Sync + ?Sized,
+        L: IncrementalLoadPersitence + Send + Sync + ?Sized,
         W: LoggingRepo + Send + Sync + ?Sized,
     {
         let mut cursor: Option<Uuid> = None;

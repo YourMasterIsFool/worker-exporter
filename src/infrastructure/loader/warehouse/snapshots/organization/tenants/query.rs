@@ -7,23 +7,21 @@ use tracing::debug;
 use crate::{
     core::traits::{
         extractor::incremental_source::{IncrementalSource, WhereField},
-        load::{LoadEnum, LoaderWarehouse},
+        load::{LoadEnum, LoaderPersitence},
     },
     domain::snapshots::organization::tenant_snapshot::{
         TenantSnapshot, TenantSnapshotQueryRepository,
     },
-    infrastructure::warehouse::{
-        snapshots::organization::tenants::model::TenantSnapshotModel,
-        warehouse_client::WarehouseClient,
-    },
     utils::build_query,
 };
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::model::TenantSnapshotModel;
 
 pub struct TenantPoolQuerySnapshot {
     pub pool: Arc<WarehouseClient>,
 }
 
-impl LoaderWarehouse for TenantPoolQuerySnapshot {
+impl LoaderPersitence for TenantPoolQuerySnapshot {
     fn table(&self) -> &'static str {
         "tenant_snapshots"
     }

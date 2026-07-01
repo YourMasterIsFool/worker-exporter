@@ -14,10 +14,9 @@ pub struct GrpcService {
 
 impl GrpcService {
     pub fn new(config: &Config) -> Self {
-        debug!("{:?}", config);
         Self {
             s3_facilitator_grpc: Arc::new(S3FacilitatorGrpc::new(&config.facilitator_grpc_url)),
-            ats_decryptor_grpc: Arc::new(AtsDecryptorGrpc::new("http://172.16.167.0:31001")),
+            ats_decryptor_grpc: Arc::new(AtsDecryptorGrpc::new(&config.ats_grpc_url)),
         }
     }
 }

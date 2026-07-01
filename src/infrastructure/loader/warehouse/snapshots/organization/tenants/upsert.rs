@@ -4,19 +4,17 @@ use anyhow::{Ok, Result};
 use tracing::debug;
 
 use crate::{
-    core::traits::load::{IncrementalLoad, LoadEnum, LoaderWarehouse},
-    infrastructure::warehouse::{
-        snapshots::organization::tenants::model::TenantSnapshotModel,
-        warehouse_client::WarehouseClient,
-    },
+    core::traits::load::{IncrementalLoadPersitence, LoadEnum, LoaderPersitence},
     utils::build_query,
 };
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::model::TenantSnapshotModel;
 
 pub struct TenantWarehouseSnapshot {
     pub client: Arc<WarehouseClient>,
 }
 
-impl LoaderWarehouse for TenantWarehouseSnapshot {
+impl LoaderPersitence for TenantWarehouseSnapshot {
     fn table(&self) -> &'static str {
         "tenant_snapshots"
     }
@@ -33,7 +31,7 @@ impl LoaderWarehouse for TenantWarehouseSnapshot {
 // buat loader
 
 #[async_trait::async_trait]
-impl IncrementalLoad for TenantWarehouseSnapshot {
+impl IncrementalLoadPersitence for TenantWarehouseSnapshot {
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64> {
         if rows.is_empty() {
             return Ok(0);

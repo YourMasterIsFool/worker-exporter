@@ -23,7 +23,7 @@ use crate::{
 // Untuk numeric
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
-pub struct AtsVacancyModel {
+pub struct IngestionAtsVacancyModel {
     pub id: Uuid,
     // pub updated_at: NaiveDateTime,
     // pub created_at: NaiveDateTime,
@@ -149,7 +149,8 @@ impl DataFetcherJson for AtsVacancySource {
         let mut qb = QueryBuilder::new(&sql);
 
         let parse_result =
-            fetch_data_json::<AtsVacancyModel>(&mut qb, filters, &self.pool.pool, None).await;
+            fetch_data_json::<IngestionAtsVacancyModel>(&mut qb, filters, &self.pool.pool, None)
+                .await;
 
         match parse_result {
             Ok(result) => {
@@ -185,7 +186,7 @@ impl SourceIncrementalExtract for AtsVacancySource {
         }
         qb.push(" LIMIT ").push_bind(limit);
         let result = qb
-            .build_query_as::<AtsVacancyModel>()
+            .build_query_as::<IngestionAtsVacancyModel>()
             .fetch_all(&self.pool.pool)
             .await?;
 

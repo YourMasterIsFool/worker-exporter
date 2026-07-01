@@ -1,21 +1,19 @@
-
+use excelstream::ExcelWriter;
 use tracing::error;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use crate::application::fetch_source_regitry;
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::logging_warehouse::LoggingWarehouse;
 use crate::{
     app_state::AppState,
     application::{
-        dataset::build_dataset_registry,
-        fetch_source_regitry::build_data_fetcher_json_registry,
-        grpcs::gprc::GrpcService,
-        handler::ingestion_handler::IngestionHandler,
-        ingestion::source_registry::build_source_registry,
-        load::build_load_registry,
+        dataset::build_dataset_registry, fetch_source_regitry::build_data_fetcher_json_registry,
+        grpcs::gprc::GrpcService, handler::ingestion_handler::IngestionHandler,
+        ingestion::source_registry::build_source_registry, load::build_load_registry,
         orchestrator::orchestrator_registry::build_orchestrator_registry,
-        pipelines::pipeline_registry::build_pipeline_registry,
-        repositories::Repositories,
-        usecases::usecases::Usecases,
-        writter::build_writter_registry,
+        pipelines::pipeline_registry::build_pipeline_registry, repositories::Repositories,
+        usecases::usecases::Usecases, writter::build_writter_registry,
     },
     core::{
         config::{config::Config, database_manager::DatabaseManager},
@@ -26,13 +24,10 @@ use crate::{
     },
     infrastructure::{
         db::{
-            ats_client::AtsClient,
-            db_manager::DatabaseInfraManager,
-            master_client::MasterClient,
+            ats_client::AtsClient, db_manager::DatabaseInfraManager, master_client::MasterClient,
         },
         ingestion::organization::organization_postgres_client::OrganizatinPostgresClient,
         redis::{RedisPublisher, RedisStreamConsumer},
-        warehouse::{logging_warehouse::LoggingWarehouse, warehouse_client::WarehouseClient},
     },
     repo::WarehouseRepo,
 };
@@ -59,9 +54,13 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
 
     let grpc_service = Arc::new(GrpcService::new(&config));
 
-    let redis_client =
-        Client::open(std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".to_string()))?;
-    let manager = Arc::new(ConnectionManager::new(redis_client).await?);
+    let redis_client = Client::open(
+        std::env::var(&config.redis_url).unwrap_or("redis://127.0.0.1:6379".to_string()),
+    )?;
+    let manager = Arc::new(ConnectionManager::new(redis_client).await.map_err(|err| {
+        error!("REDIS CONNECTION {err}");
+        anyhow::anyhow!(err)
+    })?);
 
     let redis_publisher = Arc::new(RedisPublisher {
         client: manager.clone(),
@@ -78,8 +77,6 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     let database_infra_manager = Arc::new(DatabaseInfraManager::new(database_manager.clone()));
 
     // defining repositories
-    let repositories = Arc::new(Repositories::new(database_infra_manager.clone()));
-    let usecases = Arc::new(Usecases::new(repositories.clone()));
 
     // 3. clients
     let warehouse_client = Arc::new(
@@ -107,9 +104,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         source_registry.clone(),
     ));
     let data_fetcher_registry = Arc::new(build_data_fetcher_json_registry(
-        organization_client.clone(),
-        ats_client.clone(),
-        master_client.clone(),
+        database_infra_manager.clone(),
     ));
 
     let dataset_registry = Arc::new(build_dataset_registry(
@@ -135,11 +130,12 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
 
     // repo
     let _warehouse_repo = WarehouseRepo::new(warehouse_client.clone());
-
+    let repositories = Arc::new(Repositories::new(database_infra_manager.clone()));
+    let usecases = Arc::new(Usecases::new(
+        repositories.clone(),
+        data_fetcher_registry.clone(),
+    ));
     // 5. app state
-
-    // 6. redis
-
     let state = Arc::new(AppState {
         // warehouse_client,
         // organization_db: organization_client,
@@ -153,33 +149,18 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         manager: manager.clone(),
     });
 
-    // 7. setup stream groups
-    setup_stream_groups(manager.clone()).await?;
-
-    let ingestion_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
-        Arc::new(RedisStreamConsumer {
-            client: manager.clone(),
-            stream_key: "stream:ingestion".to_string(),
-            group: "ingestion-group".to_string(),
-            consumer_name: "consumer-1".to_string(),
-        });
-    // 8. handlers
-    let ingestion_handler = IngestionHandler {
-        app_state: state.clone(),
-        consumer: ingestion_consumer,
-    };
-
-    // 9. jalankan — tambah handler baru tinggal tambah di sini
-
-    tokio::spawn(async move {
-        if let Err(e) = ingestion_handler.handler().await {
-            error!(error = ?e, "ingestion handler crashed");
-        }
-    });
-
-    // ⛔ THIS WAS MISSING
-
     Ok(state.clone())
+}
+
+pub async fn boostrap_worker(state: &AppState) -> anyhow::Result<()> {
+    let manager = state.manager.clone();
+
+    setup_stream_groups(manager.clone()).await?;
+    Ok(())
+}
+
+pub async fn boostrap_http(state: &AppState) -> anyhow::Result<()> {
+    Ok(())
 }
 
 async fn setup_stream_groups(manager: Arc<ConnectionManager>) -> anyhow::Result<()> {

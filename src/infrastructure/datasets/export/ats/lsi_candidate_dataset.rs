@@ -1,6 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::application::grpcs::{ats::decryptor::DecryptRequest, gprc::GrpcService};
+use crate::{
+    application::grpcs::{
+        ats::decryptor::{DecryptBatchRequest, DecryptRequest},
+        gprc::GrpcService,
+    },
+    core::{traits::dataset_trait::Dataset, types::CastingEnum},
+};
 
 use anyhow::anyhow;
 
@@ -66,7 +72,6 @@ use crate::{
         fetch_source_regitry::DataFetcherJsonRegistry, ingestion::source_registry::SourceRegistry,
     },
     core::{
-        datasets::dataset_trait::Dataset,
         traits::{load::LoadEnum, writter::writter_trait::ExportRow},
         types::WhereField,
     },
@@ -224,6 +229,7 @@ impl Dataset for LsiCandidateDataset {
             operator: "=".into(),
             values: Some(candidate_ids.clone()),
             value: None,
+            casting: Some(CastingEnum::Uuid),
         }];
 
         let education_filter = vec![WhereField {
@@ -231,6 +237,7 @@ impl Dataset for LsiCandidateDataset {
             operator: "=".into(),
             values: Some(candidate_ids.clone()),
             value: None,
+            casting: Some(CastingEnum::Uuid),
         }];
 
         let candidate_client_filter = vec![
@@ -239,12 +246,14 @@ impl Dataset for LsiCandidateDataset {
                 operator: "=".into(),
                 values: Some(candidate_ids.clone()),
                 value: None,
+                casting: Some(CastingEnum::Uuid),
             },
             WhereField {
                 field: "tenant_id".into(),
                 operator: "=".into(),
                 values: Some(vec!["019e95a5-f5f3-7dd8-952b-0ce16845d9bd".to_string()]),
                 value: None,
+                casting: Some(CastingEnum::Uuid),
             },
         ];
         let vacancy_filter = vec![WhereField {
@@ -252,15 +261,16 @@ impl Dataset for LsiCandidateDataset {
             operator: "=".into(),
             values: Some(vacancy_ids),
             value: None,
+            casting: Some(CastingEnum::Uuid),
         }];
         let experient_filter = vec![WhereField {
             field: "candidate_id".into(),
             operator: "=".into(),
             values: Some(candidate_ids.clone()),
             value: None,
+            casting: Some(CastingEnum::Uuid),
         }];
 
-        let mut identity_number_encrypt_after_decrypt_vec = Vec::with_capacity(candidate_ids.len());
         // let mut address_after_decrypt_vec = Vec::with_capacity(candidate_ids.len());
         //fetch all paralelly
         let (
@@ -300,16 +310,24 @@ impl Dataset for LsiCandidateDataset {
         //     .collect::<Vec<_>>();
         //
 
+        let identy_number = candidate_fetcher_data
+            .iter()
+            .map(|c| {
+                c.get("identity_number_encrypt")
+                    .and_then(|v| v.as_str())
+                    .map(|f| f.to_string())
+                    .unwrap_or("".to_string())
+            })
+            .collect::<Vec<_>>();
         let ats_decryptor_grpc = self.grpc_service.ats_decryptor_grpc.clone();
 
-        let decrypted = ats_decryptor_grpc
-            .decrypt(DecryptRequest {
-                ciphertext: "QnJhbmRvbkxlZUVuY3J5cHQxMjM0NTY3ODkwMTIzNDU2Nzg=".to_string(),
+        let identity_response = ats_decryptor_grpc
+            .batch_decrypt(DecryptBatchRequest {
+                ciphertexts: identy_number,
             })
             .await?;
 
-        let decrypted = decrypted.plaintext;
-        tracing::info!("decrypted: {}", decrypted);
+        let identity_hashmap = identity_response.plaintexts;
 
         // let mut set = JoinSet::new();
         // for identity in identity_number_encrypt_fetcher {
@@ -580,6 +598,7 @@ impl Dataset for LsiCandidateDataset {
                 operator: "=".into(),
                 value: None,
                 values: Some(master_geo_ids),
+                casting: Some(CastingEnum::Uuid),
             }]);
 
             let geo_data = geo_fetcher.fetch(geo_filter).await?;
@@ -599,6 +618,7 @@ impl Dataset for LsiCandidateDataset {
             operator: "=".into(), // Gunakan IN
             value: None,
             values: Some(master_ids),
+            casting: Some(CastingEnum::Uuid),
         }]);
 
         let education_mapper_data = education_fetcher_data
@@ -641,11 +661,6 @@ impl Dataset for LsiCandidateDataset {
         let mut rows: Vec<LsiCandidateDatasetRow> = vec![];
 
         for (index, applicant) in applicants.iter().enumerate() {
-            let identity_number = identity_number_encrypt_after_decrypt_vec
-                .get(index)
-                .cloned()
-                .unwrap_or_default();
-
             let candidate_id = applicant
                 .get("candidate_id")
                 .and_then(|v| v.as_str())
@@ -1020,6 +1035,16 @@ impl Dataset for LsiCandidateDataset {
 
             let industry = map_master_data
                 .get(candidate_industry)
+                .cloned()
+                .unwrap_or("-".to_string());
+
+            let candidate_identity_number = candidate_map
+                .get("identity_number")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+
+            let identity_number = identity_hashmap
+                .get(candidate_identity_number)
                 .cloned()
                 .unwrap_or("-".to_string());
 

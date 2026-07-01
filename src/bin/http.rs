@@ -3,13 +3,11 @@ use std::sync::Arc;
 use axum::routing::post;
 use axum::Router;
 
-use export_rust::application::presentation::http::list_logging_http::list_log_by_tenant_id_http;
-use export_rust::application::presentation::http::post_detail_file_http::post_detail_file_http;
-use export_rust::{
-    app_state::AppState,
-    boostrap,
-    core::config::config::Config,
-};
+use worker_exporter::application::presentation::http::list_logging_http::list_log_by_tenant_id_http;
+use worker_exporter::application::presentation::http::payload_generated_import_template::generated_import_template_http;
+use worker_exporter::application::presentation::http::post_detail_file_http::post_detail_file_http;
+use worker_exporter::application::usecases::generated_email_template_usecase;
+use worker_exporter::{app_state::AppState, boostrap, core::config::config::Config};
 
 use tracing::debug;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -32,6 +30,7 @@ fn create_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/detail-file", post(post_detail_file_http))
         .route("/loggings", post(list_log_by_tenant_id_http))
+        .route("/generated-template", post(generated_import_template_http))
         .with_state(state) // Axum sekarang membagikan Arc<AppState> yang cocok dengan handler
 }
 
@@ -39,25 +38,28 @@ fn create_app(state: Arc<AppState>) -> Router {
 async fn main() {
     init_logger(); // Aktifkan logger Anda
 
-    if let Ok(bootstrap_data) = boostrap::bootstrap().await {
-        // 2. PERBAIKAN UTAMA: Bungkus objek bootstrap_data ke dalam Arc di sini!
-        // Ini memastikan state yang dikloning dan dibagikan bertipe Arc<AppState>
-        let state = bootstrap_data;
-        let app = create_app(state.clone());
-        let config = Config::new();
+    match boostrap::bootstrap().await {
+        Ok(bootstrap_data) => {
+            // 2. PERBAIKAN UTAMA: Bungkus objek bootstrap_data ke dalam Arc di sini!
+            // Ini memastikan state yang dikloning dan dibagikan bertipe Arc<AppState>
+            let state = bootstrap_data;
+            let app = create_app(state.clone());
+            let config = Config::new();
 
-        let host = format!("{}:{}", config.host, config.port);
-        let listener = tokio::net::TcpListener::bind(&host)
-            .await
-            .expect("http failed to bind");
+            let host = format!("{}:{}", config.host, config.port);
+            let listener = tokio::net::TcpListener::bind(&host)
+                .await
+                .expect("http failed to bind");
 
-        debug!("axum server running into {}", &host);
+            debug!("axum server running into {}", &host);
 
-        axum::serve(listener, app)
-            .await
-            .expect("http failed to serve");
-    } else {
-        eprintln!("failed to bootstrap");
-        return;
+            axum::serve(listener, app)
+                .await
+                .expect("http failed to serve");
+        }
+        Err(e) => {
+            eprintln!("failed to bootstrap: {}", e);
+            return;
+        }
     }
 }

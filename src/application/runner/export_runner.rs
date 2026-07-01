@@ -1,7 +1,6 @@
 
 use crate::{
     core::{
-        datasets::dataset_trait::Dataset,
         traits::{
             load::LoadEnum,
             orchestrator::ExporterColumn,
@@ -11,6 +10,8 @@ use crate::{
     },
     domain::logging::repo::LoggingRepo,
 };
+use crate::core::traits::dataset_trait::Dataset;
+
 pub struct ExportRunner;
 
 impl ExportRunner {

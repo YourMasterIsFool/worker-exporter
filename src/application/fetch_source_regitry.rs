@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use crate::{
-    core::traits::{
-        etl::DataFetcherJson,
-        strategy::registry::Registry,
+    core::{
+        config::database_manager,
+        traits::{etl::DataFetcherJson, strategy::registry::Registry},
     },
     infrastructure::{
-        db::{ats_client::AtsClient, master_client::MasterClient},
+        db::{
+            ats_client::AtsClient, db_manager::DatabaseInfraManager, master_client::MasterClient,
+        },
         ingestion::{
             ats::{
                 candidate::{
@@ -15,6 +17,9 @@ use crate::{
                     education::AtsEducationSource, experient::AtsExperinceSource,
                 },
                 vacancy::vacancy::AtsVacancySource,
+            },
+            hris::attedances::attedance_locations::{
+                IngestionHrisAttedanceLocations, IngestionHrisAttedanceLocationsSource,
             },
             master::{geo::MasterGeoSource, master_item::MasterMasterItemsSource},
             organization::organization_postgres_client::OrganizatinPostgresClient,
@@ -29,62 +34,68 @@ pub struct DataFetcherJsonRegistryStruct {
 }
 
 pub fn build_data_fetcher_json_registry(
-    _organization_db: Arc<OrganizatinPostgresClient>,
-    ats_db: Arc<AtsClient>,
-    master_db: Arc<MasterClient>,
+    database_infra_manager: Arc<DatabaseInfraManager>,
 ) -> DataFetcherJsonRegistry {
     let mut registry = DataFetcherJsonRegistry::new();
+    let manager = database_infra_manager.clone();
     registry.register(
         "ats_candidate_custom_field_fetcher",
         Arc::new(AtsCandidateClientFieldSource {
-            pool: ats_db.clone(),
+            pool: manager.ats.clone(),
         }),
     );
 
     registry.register(
         "ats_candidate_fetcher",
         Arc::new(AtsCandidateSource {
-            pool: ats_db.clone(),
+            pool: manager.ats.clone(),
         }),
     );
     registry.register(
         "master_geo_fetcher",
         Arc::new(MasterGeoSource {
-            pool: master_db.clone(),
+            pool: manager.master.clone(),
         }),
     );
     registry.register(
         "master_master_items_fetcher",
         Arc::new(MasterMasterItemsSource {
-            pool: master_db.clone(),
+            pool: manager.master.clone(),
         }),
     );
 
     registry.register(
         "ats_education_fetcher",
         Arc::new(AtsEducationSource {
-            pool: ats_db.clone(),
+            pool: manager.ats.clone(),
         }),
     );
 
     registry.register(
         "ats_vacancy_fetcher",
         Arc::new(AtsVacancySource {
-            pool: ats_db.clone(),
+            pool: manager.ats.clone(),
         }),
     );
 
     registry.register(
         "ats_experience_fetcher",
         Arc::new(AtsExperinceSource {
-            pool: ats_db.clone(),
+            pool: manager.ats.clone(),
         }),
     );
 
     registry.register(
         "ats_candidate_field_fetcher",
         Arc::new(AtsCandidateClientFieldSource {
-            pool: ats_db.clone(),
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "hris_attendance_locations_fetcher",
+        Arc::new(IngestionHrisAttedanceLocationsSource {
+            pool: manager.hris.clone(),
         }),
     );
 

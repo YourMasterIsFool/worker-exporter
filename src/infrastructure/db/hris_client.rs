@@ -1,10 +1,10 @@
 use sqlx::PgPool;
 
-pub struct HrisPostgresClient {
-    pool: PgPool,
+pub struct HrisClient {
+    pub pool: PgPool,
 }
 
-impl HrisPostgresClient {
+impl HrisClient {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }

@@ -1,14 +1,10 @@
 use std::sync::Arc;
 
-use crate::{
-    core::traits::{load::IncrementalLoad, strategy::registry::Registry},
-    infrastructure::warehouse::{
-        snapshots::organization::tenants::upsert::TenantWarehouseSnapshot,
-        warehouse_client::WarehouseClient,
-    },
-};
+use crate::core::traits::{load::IncrementalLoadPersitence, strategy::registry::Registry};
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::upsert::TenantWarehouseSnapshot;
 
-pub type LoadRegistry = Registry<dyn IncrementalLoad + Send + Sync>;
+pub type LoadRegistry = Registry<dyn IncrementalLoadPersitence + Send + Sync>;
 
 pub fn build_load_registry(client: Arc<WarehouseClient>) -> LoadRegistry {
     let mut registry = LoadRegistry::new();

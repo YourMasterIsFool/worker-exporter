@@ -17,18 +17,18 @@ impl LoadEnum {
     }
 }
 #[async_trait::async_trait]
-pub trait IncrementalLoad: Send + Sync {
+pub trait IncrementalLoadPersitence: Send + Sync {
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64>;
 }
 
-pub trait LoaderWarehouse: Send + Sync {
+pub trait LoaderPersitence: Send + Sync {
     fn table(&self) -> &'static str;
     fn columns(&self) -> &'static [&'static str];
     fn conflicted_columns(&self) -> &'static [&'static str];
 }
 
 #[async_trait::async_trait]
-impl<T: IncrementalLoad + ?Sized + Send + Sync> IncrementalLoad for Arc<T> {
+impl<T: IncrementalLoadPersitence + ?Sized + Send + Sync> IncrementalLoadPersitence for Arc<T> {
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64> {
         (**self).load(rows).await
     }

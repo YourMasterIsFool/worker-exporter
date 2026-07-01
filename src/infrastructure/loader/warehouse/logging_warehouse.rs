@@ -7,15 +7,15 @@ use sqlx::QueryBuilder;
 use tracing::{debug, instrument};
 
 use crate::{
-    core::traits::load::{LoadEnum, LoaderWarehouse},
+    core::traits::load::{LoadEnum, LoaderPersitence},
     domain::logging::{
         entity::{LoggingEntity, LoggingStatus},
         repo::LoggingRepo,
     },
     errors::DomainError,
-    infrastructure::warehouse::warehouse_client::WarehouseClient,
     utils::build_query,
 };
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct LoggingWarehouseModel {
@@ -111,7 +111,7 @@ impl LoggingWarehouse {
         Ok(())
     }
 }
-impl LoaderWarehouse for LoggingWarehouse {
+impl LoaderPersitence for LoggingWarehouse {
     fn table(&self) -> &'static str {
         "loggings"
     }

@@ -20,7 +20,7 @@ use crate::{
             orchestrator::{Orchestrator, OrchestratorJob},
             publisher::Publisher,
         },
-        types::WhereField,
+        types::{CastingEnum, WhereField},
     },
     domain::logging::{
         entity::{LoggingEntity, LoggingStatus, LoggingType},
@@ -155,6 +155,7 @@ impl Orchestrator for ExportOrchestrator {
                 operator: "=".to_string(),
                 value: Some(job.tenant_id.clone()),
                 values: None,
+                casting: Some(CastingEnum::Uuid),
             }];
 
             if let Some(filters) = &job.filters {

@@ -18,7 +18,16 @@ message EncryptResponse {
   string ciphertext = 1;
 }
 
+message DecryptBatchRequest {
+  repeated string ciphertexts = 1;
+}
+
+message DecryptBatchResponse {
+  map<string, string> plaintexts = 1;
+}
+
 service DecryptorService {
   rpc decrypt(DecryptRequest) returns (DecryptResponse);
   rpc encrypt(EncryptRequest) returns (EncryptResponse);
+  rpc decryptBatch(DecryptBatchRequest) returns (DecryptBatchResponse);
 }

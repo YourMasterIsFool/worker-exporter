@@ -7,7 +7,6 @@ use crate::core::traits::writter::writter_trait::{ExportRow, WritterTrait};
 
 pub struct ExcelExporter {
     pub file_path: Option<String>,
-
     pub client: Option<ExcelWriter>,
 }
 

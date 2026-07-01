@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use crate::{
     domain::logging::repo::LoggingRepo,
-    infrastructure::{
-        db::db_manager::DatabaseInfraManager, warehouse::logging_warehouse::LoggingWarehouse,
-    },
+    infrastructure::db::db_manager::DatabaseInfraManager,
 };
+use crate::infrastructure::loader::warehouse::logging_warehouse::LoggingWarehouse;
 
 pub struct Repositories {
     pub logging_repo: Arc<dyn LoggingRepo + Send + Sync>,

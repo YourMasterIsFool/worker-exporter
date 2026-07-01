@@ -8,14 +8,6 @@ use crate::{
     infrastructure::exporter::{csv_exporter::CsvExporter, excel_exporter::ExcelExporter},
 };
 
-// pub type WritterRegistry = Registry<dyn WritterTrait>;
-// pub fn build_writter_registry() -> WritterRegistry {
-//     let mut registry = WritterRegistry::new();
-//     registry.register("csv", || Box::new(CsvExporter::new()));
-//     registry
-// }
-//
-
 pub type WritterFactory = Box<dyn Fn() -> Box<dyn WritterTrait> + Send + Sync>;
 pub struct WritterRegistry {
     pub maps: HashMap<String, WritterFactory>,

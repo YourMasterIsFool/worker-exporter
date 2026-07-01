@@ -108,10 +108,7 @@ where
             query.push(" WHERE 1=1 ");
         }
         for field in params {
-            // Hapus hardcode $1, gunakan string kosong agar QueryBuilder yang mengisi otomatis
             if let Some(values) = field.values {
-                // Gunakan format yang benar: tambahkan operator dan target tipe array
-                // Hasil akhirnya akan menjadi: AND id = ANY($1::uuid[])
                 let clean_values: Vec<String> = values
                     .into_iter()
                     .filter(|s| s != "null" && !s.is_empty())
@@ -119,18 +116,22 @@ where
                     .into_iter()
                     .collect();
 
-                // 2. Jika setelah difilter array kosong, kita tidak perlu memanggil query
-                // atau biarkan database mengembalikan hasil kosong
-                //
                 if clean_values.is_empty() {
                     continue;
                 }
 
+                // Default ke varchar kalau cast_type tidak diisi.
+                // PASTIKAN cast_type sesuai tipe kolom asli di DB, kalau tidak
+                // index di kolom tersebut tidak akan kepakai (lihat pembahasan sebelumnya).
+                let cast = match field.casting {
+                    Some(casting) => casting.as_str().to_string(),
+                    None => "varchar".to_string(),
+                };
+
                 query.push(format!(" AND {} {} ANY(", field.field, field.operator));
                 query.push_bind(clean_values);
-                query.push("::uuid[]) ");
+                query.push(format!("::{}[]) ", &cast));
             } else if let Some(value) = field.value {
-                // Untuk kondisi biasa: AND id = $1
                 query.push(format!(" AND {} {} ", field.field, field.operator));
                 query.push_bind(value);
             }
@@ -147,4 +148,29 @@ where
         .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
     Ok(parse_result)
+}
+
+/// Whitelist tipe cast yang diperbolehkan.
+/// PENTING: karena `cast` di-inject langsung via `format!` (bukan bind parameter),
+/// tanpa whitelist ini rawan SQL injection kalau `cast_type` pernah berasal dari input user.
+fn validate_cast_type(cast: &str) -> anyhow::Result<()> {
+    const ALLOWED: &[&str] = &[
+        "uuid",
+        "varchar",
+        "text",
+        "int4",
+        "int8",
+        "integer",
+        "bigint",
+        "numeric",
+        "boolean",
+        "date",
+        "timestamp",
+        "timestamptz",
+    ];
+    if ALLOWED.contains(&cast) {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("cast_type tidak diizinkan: {cast}"))
+    }
 }
