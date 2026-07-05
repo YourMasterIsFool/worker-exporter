@@ -23,6 +23,7 @@ use crate::domain::logging;
 use crate::domain::logging::entity::{LoggingEntity, LoggingStatus, LoggingType};
 use crate::domain::logging::repo::LoggingRepo;
 use crate::infrastructure;
+use crate::infrastructure::datasets::import;
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::infrastructure::pipeline::ats::vacancy_import_pipeline;
 use crate::{
@@ -255,11 +256,9 @@ impl Orchestrator for ImportOrchestrator {
             };
 
             let logging_id = self.logging.store(logging_entity).await?;
-            let import_load_registry = self
-                .import_load_registry
-                .get("warehouse_ats_vacancy_temporary")?;
+            let import_load_registry = self.import_load_registry.get(&import_config.loader)?;
 
-            let dataset = self.import_datasetV1.get("dynamic_dataset_v1")?;
+            let dataset = self.import_datasetV1.get(&import_config.dataset)?;
             let key = &import_config.key;
 
             let payload_download_url = vec![key.clone()];

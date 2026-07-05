@@ -36,7 +36,7 @@ const PAYLOAD_TEMPLATE: &str = r#"{
       { "header": "province", "column": "vacancy.province_id|vacancy.province_meta|vacancy_custom_fields.province_id", "fetcher": "MASTER_GEO", "type_data": "UUID", "is_custom": false },
       { "header": "city", "column": "vacancy.city_id|vacancy.city_meta|vacancy_custom_fields.city_id", "fetcher": "MASTER_GEO", "type_data": "UUID", "is_custom": false },
       { "header": "work_location_group", "column": "vacancy_custom_field.workLocationGroupId", "fetcher": "MASTER_ITEMS", "type_data": "UUID", "is_custom": true },
-      { "header": "work_location", "column": "vacancy.work_location_id|vacancy.work_location_meta", "fetcher": "hris_attendance_locations_fetcher", "type_data": "UUID", "is_custom": false },
+      { "header": "work_location", "column": "vacancy.work_location_id|vacancy.work_location_meta", "fetcher": "ATTEDANCE_LOCATION", "type_data": "UUID", "is_custom": false },
       { "header": "employee_status", "column": "vacancy.employment_status_id|vacancy.employment_status_meta", "fetcher": "EMPLOYMENT_STATUS", "type_data": "UUID", "is_custom": false },
       { "header": "job_grade", "column": "vacancy_custom_field.jobGradeId", "fetcher": "JOB_GRADE", "type_data": "UUID", "is_custom": true },
       { "header": "job_level", "column": "vacancy_custom_field.jobLevelId", "fetcher": "JOB_LEVEL", "type_data": "UUID", "is_custom": true },

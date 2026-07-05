@@ -22,7 +22,7 @@ impl JobHandler for ExportHandler {
         consumer_handler(
             self.consumer.clone(),
             self.app_state.orchestrator_registry.clone(),
-            "export",
+            "EXPORT",
         )
         .await?;
 

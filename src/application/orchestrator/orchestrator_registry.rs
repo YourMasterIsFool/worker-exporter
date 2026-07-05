@@ -37,7 +37,7 @@ pub fn build_orchestrator_registry(
     let mut registry = OrchestratorRegistry::new();
 
     registry.register(
-        "import",
+        "IMPORT",
         Arc::new(ImportOrchestrator {
             grpc_service: grpc_service.clone(),
             imporer_dataset,
@@ -48,7 +48,7 @@ pub fn build_orchestrator_registry(
         }),
     );
     registry.register(
-        "export",
+        "EXPORT",
         Arc::new(ExportOrchestrator {
             pipeline,
             writter,

@@ -176,7 +176,7 @@ impl GeneratedEmailTemplateUsecase {
             },
             MasterConfig {
                 title: "Work Location".into(),
-                fetcher_key: "hris_attendance_locations_fetcher".into(),
+                fetcher_key: "ATTEDANCE_LOCATION".into(),
                 filter: Some(work_location_filter),
                 name_field: "name",
             },

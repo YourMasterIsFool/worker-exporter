@@ -15,6 +15,7 @@ pub struct ExporterConfig {
     pub template_code: String,
     pub structure_template_code: String,
     pub redirected_url: String,
+    pub chunk: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -73,6 +74,7 @@ pub struct ImporterConfig {
     pub key: String,
     pub data_source_type: String,
     pub pipeline: String,
+    pub loader: String,
     pub master_table: String,
     pub primary_column: String,
     pub sequential_table: Option<Vec<SequentialTable>>,
@@ -84,7 +86,7 @@ pub struct OrchestratorJob {
     pub(crate) tenant_id: String,
     pub(crate) email: String,
     pub(crate) actor_id: String,
-    pub(crate) limit: i64,
+
     pub(crate) orchestrator_name: String,
     pub(crate) export_config: Option<ExporterConfig>,
     pub(crate) ingestion_config: Option<IngestionConfig>,

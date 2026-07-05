@@ -22,7 +22,7 @@ impl JobHandler for ImportHandler {
         consumer_handler(
             self.consumer.clone(),
             self.app_state.orchestrator_registry.clone(),
-            "import",
+            "IMPORT",
         )
         .await?;
 

@@ -70,7 +70,7 @@ pub fn build_importer_dataset_registry_v1(
 
     registry
         .register(
-            "dynamic_dataset_v1",
+            "DYNAMIC_DATASET_V1",
             Arc::new(DynamicDatasetV1::new(fetcher_registry.clone())),
         )
         .expect("error registrer ats import lsi vacancy dataset");

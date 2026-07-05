@@ -171,7 +171,7 @@ impl Orchestrator for ExportOrchestrator {
                 msg_id,
                 Some(job_filter),
                 &mut cursor,
-                job.limit,
+                config.chunk,
             )
             .await;
 

@@ -100,7 +100,7 @@ pub fn build_data_fetcher_json_registry(
     );
 
     registry.register(
-        "hris_attendance_locations_fetcher",
+        "ATTEDANCE_LOCATION",
         Arc::new(IngestionHrisAttedanceLocationsSource {
             pool: manager.hris.clone(),
         }),
