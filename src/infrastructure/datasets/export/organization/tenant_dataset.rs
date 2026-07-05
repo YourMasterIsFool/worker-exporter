@@ -4,10 +4,9 @@ use sqlx::QueryBuilder;
 
 use crate::core::{
     traits::{
-        dataset_trait::Dataset, extractor::incremental_source::IncrementalSource,
-        load::LoadEnum, writter::writter_trait::ExportRow,
+        dataset_trait::Dataset, extractor::incremental_source::IncrementalSource, load::LoadEnum,
     },
-    types::WhereField,
+    types::{ExportRow, WhereField},
 };
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::query::TenantPoolQuerySnapshot;

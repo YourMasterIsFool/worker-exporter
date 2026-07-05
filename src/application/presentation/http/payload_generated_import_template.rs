@@ -2,7 +2,7 @@ use crate::{app_state::AppState, errors::AppError};
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Response, StatusCode},
+    http::{header, Response},
     response::IntoResponse,
     Json,
 };
@@ -22,7 +22,7 @@ pub async fn generated_import_template_http(
 ) -> impl IntoResponse {
     let usecases = state.usecases.clone();
     let usecase = usecases.generated_email_template_usecase.clone();
-    let file_path = format!("excel/{}.xlsx", Uuid::new_v4());
+    let file_path = format!("excel/{}.xlsx", Uuid::now_v7());
 
     let result = usecase
         .execute(&payload.headers, &file_path, &payload.tenant_id)

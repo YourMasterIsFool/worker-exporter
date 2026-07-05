@@ -1,16 +1,14 @@
-
+use crate::core::traits::dataset_trait::Dataset;
+use crate::core::types::ExportRow;
 use crate::{
     core::{
         traits::{
-            load::LoadEnum,
-            orchestrator::ExporterColumn,
-            writter::writter_trait::{ExportRow, WritterTrait},
+            load::LoadEnum, orchestrator::ExporterColumn, writter::writter_trait::WritterTrait,
         },
         types::WhereField,
     },
     domain::logging::repo::LoggingRepo,
 };
-use crate::core::traits::dataset_trait::Dataset;
 
 pub struct ExportRunner;
 

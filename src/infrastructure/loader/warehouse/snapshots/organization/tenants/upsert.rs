@@ -3,12 +3,12 @@ use std::sync::Arc;
 use anyhow::{Ok, Result};
 use tracing::debug;
 
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::model::TenantSnapshotModel;
 use crate::{
     core::traits::load::{IncrementalLoadPersitence, LoadEnum, LoaderPersitence},
     utils::build_query,
 };
-use crate::infrastructure::db::warehouse_client::WarehouseClient;
-use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::model::TenantSnapshotModel;
 
 pub struct TenantWarehouseSnapshot {
     pub client: Arc<WarehouseClient>,
@@ -45,8 +45,6 @@ impl IncrementalLoadPersitence for TenantWarehouseSnapshot {
         let upsert_load = LoadEnum::Upsert;
         let query = build_query(self, &upsert_load);
 
-        debug!("snapshot {:?}", snapshots);
-        debug!("snapshot query {}", query);
         let mut tx = self.client.pool.begin().await?;
 
         for snapshot in &snapshots {

@@ -16,5 +16,5 @@ pub struct TenantIngestionEntity {
 
 #[async_trait::async_trait]
 pub trait TenantIngestionRepo {
-    async fn findByIds(&self, tenant_ids: Vec<String>) -> Vec<TenantIngestionEntity>;
+    async fn find_by_ids(&self, tenant_ids: Vec<String>) -> Vec<TenantIngestionEntity>;
 }

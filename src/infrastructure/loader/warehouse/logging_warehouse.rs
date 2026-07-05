@@ -3,9 +3,11 @@ use std::sync::Arc;
 use anyhow::Ok;
 
 use chrono::NaiveDateTime;
+use serde_json::json;
 use sqlx::QueryBuilder;
 use tracing::{debug, instrument};
 
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::{
     core::traits::load::{LoadEnum, LoaderPersitence},
     domain::logging::{
@@ -15,7 +17,6 @@ use crate::{
     errors::DomainError,
     utils::build_query,
 };
-use crate::infrastructure::db::warehouse_client::WarehouseClient;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct LoggingWarehouseModel {
@@ -249,7 +250,8 @@ impl LoggingRepo for LoggingWarehouse {
     }
 
     async fn update_error(&self, stream_id: &str, error: Option<String>) -> anyhow::Result<()> {
-        self.update_commit(stream_id, "error", error).await?;
+        let json_error = json!({"error": error});
+        self.update_commit(stream_id, "error", json_error).await?;
         Ok(())
     }
 

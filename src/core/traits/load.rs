@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 
-use crate::core::types::WhereField;
+use crate::core::types::{
+    ImportDatasetConfig, ImportRow, ImportRowBulk, ImportTableResult, WhereField,
+};
 
 pub enum LoadEnum {
     Upsert,
@@ -19,6 +21,17 @@ impl LoadEnum {
 #[async_trait::async_trait]
 pub trait IncrementalLoadPersitence: Send + Sync {
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64>;
+}
+
+#[async_trait::async_trait]
+pub trait ImportLoadPersitence: Send + Sync {
+    async fn load(
+        &self,
+        // 🔥 Perbaikan: Diubah dari ImportRowBulk menjadi ImportTableResult
+        rows: &[HashMap<String, ImportTableResult>],
+        logging_id: &str, // Sekaligus perbaikan typo nama variable 'loggin_id' -> 'logging_id'
+        config: &ImportDatasetConfig,
+    ) -> Result<i64>;
 }
 
 pub trait LoaderPersitence: Send + Sync {

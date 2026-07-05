@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use excelstream::ExcelWriter;
 
-use crate::core::traits::writter::writter_trait::{ExportRow, WritterTrait};
+use crate::core::{traits::writter::writter_trait::WritterTrait, types::ExportRow};
 
 pub struct ExcelExporter {
     pub file_path: Option<String>,

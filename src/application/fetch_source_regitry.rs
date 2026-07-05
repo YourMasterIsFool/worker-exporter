@@ -1,14 +1,9 @@
 use std::sync::Arc;
 
 use crate::{
-    core::{
-        config::database_manager,
-        traits::{etl::DataFetcherJson, strategy::registry::Registry},
-    },
+    core::traits::{etl::DataFetcherJson, strategy::registry::Registry},
     infrastructure::{
-        db::{
-            ats_client::AtsClient, db_manager::DatabaseInfraManager, master_client::MasterClient,
-        },
+        db::db_manager::DatabaseInfraManager,
         ingestion::{
             ats::{
                 candidate::{
@@ -18,11 +13,23 @@ use crate::{
                 },
                 vacancy::vacancy::AtsVacancySource,
             },
-            hris::attedances::attedance_locations::{
-                IngestionHrisAttedanceLocations, IngestionHrisAttedanceLocationsSource,
+            hris::{
+                attedances::attedance_locations::IngestionHrisAttedanceLocationsSource,
+                employee::{
+                    employee::IngestionEmployeeSource,
+                    emplyoee_statuses::IngestionEmployeeStatusesSource,
+                },
             },
             master::{geo::MasterGeoSource, master_item::MasterMasterItemsSource},
-            organization::organization_postgres_client::OrganizatinPostgresClient,
+            organization::{
+                core::{
+                    ingestion_job_grade::IngestionJobGradeSource,
+                    ingestion_job_level::IngestionJobLevelSource,
+                    ingestion_job_position::IngestionOrganizationJobPositionSource,
+                    ingestion_organization_unit::IngestionOrganizationUnitSource,
+                },
+                organization_postgres_client::OrganizatinPostgresClient,
+            },
         },
     },
 };
@@ -52,13 +59,13 @@ pub fn build_data_fetcher_json_registry(
         }),
     );
     registry.register(
-        "master_geo_fetcher",
+        "MASTER_GEO",
         Arc::new(MasterGeoSource {
             pool: manager.master.clone(),
         }),
     );
     registry.register(
-        "master_master_items_fetcher",
+        "MASTER_ITEMS",
         Arc::new(MasterMasterItemsSource {
             pool: manager.master.clone(),
         }),
@@ -99,5 +106,45 @@ pub fn build_data_fetcher_json_registry(
         }),
     );
 
+    registry.register(
+        "JOB_POSITION",
+        Arc::new(IngestionOrganizationJobPositionSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
+    registry.register(
+        "ORGANIZATION",
+        Arc::new(IngestionOrganizationUnitSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
+    registry.register(
+        "JOB_GRADE",
+        Arc::new(IngestionJobGradeSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
+    registry.register(
+        "JOB_LEVEL",
+        Arc::new(IngestionJobLevelSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+    registry.register(
+        "EMPLOYMENT_STATUS",
+        Arc::new(IngestionEmployeeStatusesSource {
+            pool: manager.hris.clone(),
+        }),
+    );
+
+    registry.register(
+        "EMPLOYEE",
+        Arc::new(IngestionEmployeeSource {
+            pool: manager.hris.clone(),
+        }),
+    );
     registry
 }

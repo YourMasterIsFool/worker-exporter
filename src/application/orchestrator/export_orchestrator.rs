@@ -9,13 +9,14 @@ use crate::{
     application::{
         dataset::DatasetRegistry,
         grpcs::{facilitator::s3_proto::UploadFileRequest, gprc::GrpcService},
-        load::LoadRegistry,
+        loader_registry::LoaderRegistry,
         pipelines::pipeline_registry::PipelineRegistry,
         runner::export_runner::ExportRunner,
         types::EmailProvider,
         writter::WritterRegistry,
     },
     core::{
+        config::config,
         traits::{
             orchestrator::{Orchestrator, OrchestratorJob},
             publisher::Publisher,
@@ -32,9 +33,9 @@ use crate::{
 struct EmailPublisher {
     email: String,
     subject: String,
-    templateId: Option<String>,
-    templateCode: Option<String>,
-    templateStructureCode: Option<String>,
+    template_id: Option<String>,
+    template_code: Option<String>,
+    template_structure_code: Option<String>,
     provider: String,
     payload: serde_json::Value,
 }
@@ -42,7 +43,7 @@ pub struct ExportOrchestrator {
     pub pipeline: Arc<PipelineRegistry>,
     pub writter: Arc<WritterRegistry>,
     pub logging: Arc<dyn LoggingRepo>,
-    pub load: Arc<LoadRegistry>,
+    pub load: Arc<LoaderRegistry>,
     pub dataset: Arc<DatasetRegistry>,
     pub grpc_service: Arc<GrpcService>,
     pub publisher: Arc<dyn Publisher>,
@@ -221,26 +222,36 @@ impl Orchestrator for ExportOrchestrator {
                 .await?;
 
             let key = payload.get_ref().key.clone();
-            self.logging.update_download_url(msg_id, key).await?;
-
+            self.logging
+                .update_download_url(msg_id, key.clone())
+                .await?;
+            let download_url = config.redirected_url.replace("{{url}}", &key);
             let payload = json!({
-                "exporterName": job.email.clone()
+                "exporterName": job.email.clone(),
+                "downloadUrl": download_url
             });
             let email = EmailPublisher {
                 email: job.email.clone(),
                 subject: "Send Email".into(),
-                templateId: None,
-                templateCode: Some("LSI_EMAIL_EXPORT".into()),
-                templateStructureCode: Some("LSI_EXPORT_STRUCTURE".into()),
+                template_id: None,
+                // template_code: Some("LSI_EMAIL_EXPORT".into()),
+                template_code: Some(config.template_code.clone()),
+                template_structure_code: Some(config.structure_template_code.clone()),
+                // template_structure_code: Some("LSI_EXPORT_STRUCTURE".into()),
                 provider: EmailProvider::SendGrid.to_string(),
                 payload,
             };
 
             let payload_email = serde_json::to_value(email)?;
 
-            self.publisher
-                .publish("stream:email", payload_email)
-                .await?;
+            match self.publisher.publish("stream:email", payload_email).await {
+                Result::Ok(_) => {
+                    tracing::info!("Successfully stream email")
+                }
+                Err(err) => {
+                    tracing::error!("error stream publish email {}", err);
+                }
+            }
 
             // remove temporary excel after upload into grpc
 

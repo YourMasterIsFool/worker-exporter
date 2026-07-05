@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use calamine::{Data, DataType};
+use serde_json::Value;
 use tracing::debug;
 
 use crate::core::traits::load::{LoadEnum, LoaderPersitence};
@@ -12,6 +14,17 @@ pub fn reformated_value(key: &str, value: &serde_json::Value) -> Result<String> 
         .to_string();
 
     Ok(val)
+}
+
+pub fn calamine_to_json(dt: &Data) -> Value {
+    match dt {
+        Data::Int(i) => Value::from(*i),
+        Data::Float(f) => Value::from(*f),
+        Data::String(s) => Value::String(s.clone()),
+        Data::Bool(b) => Value::Bool(*b),
+        Data::DateTime(d) => Value::String(d.to_string()),
+        _ => Value::Null,
+    }
 }
 
 pub fn build_query<T: LoaderPersitence>(loader: &T, mode: &LoadEnum) -> String {

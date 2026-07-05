@@ -1,33 +1,37 @@
-use excelstream::ExcelWriter;
+use tokio::net::unix::pipe;
 use tracing::error;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use crate::application::dataset::{
+    build_importer_dataset_registry, build_importer_dataset_registry_v1,
+};
 use crate::application::fetch_source_regitry;
+use crate::application::import::import_registry::{
+    build_import_loader_registry, ImportLoaderRegistry,
+};
+use crate::application::loader_registry::{self, build_loader_registry};
+use crate::application::pipelines::pipeline_import_registry::{
+    self, build_pipeline_import_registry,
+};
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader;
 use crate::infrastructure::loader::warehouse::logging_warehouse::LoggingWarehouse;
 use crate::{
     app_state::AppState,
     application::{
         dataset::build_dataset_registry, fetch_source_regitry::build_data_fetcher_json_registry,
-        grpcs::gprc::GrpcService, handler::ingestion_handler::IngestionHandler,
-        ingestion::source_registry::build_source_registry, load::build_load_registry,
+        grpcs::gprc::GrpcService, ingestion::source_registry::build_source_registry,
         orchestrator::orchestrator_registry::build_orchestrator_registry,
         pipelines::pipeline_registry::build_pipeline_registry, repositories::Repositories,
         usecases::usecases::Usecases, writter::build_writter_registry,
     },
-    core::{
-        config::{config::Config, database_manager::DatabaseManager},
-        traits::{
-            consumer::{Consumer, ConsumerMessage},
-            handler::JobHandler,
-        },
-    },
+    core::config::{config::Config, database_manager::DatabaseManager},
     infrastructure::{
         db::{
             ats_client::AtsClient, db_manager::DatabaseInfraManager, master_client::MasterClient,
         },
         ingestion::organization::organization_postgres_client::OrganizatinPostgresClient,
-        redis::{RedisPublisher, RedisStreamConsumer},
+        redis::RedisPublisher,
     },
     repo::WarehouseRepo,
 };
@@ -91,7 +95,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         database_manager.organization.clone(),
     ));
 
-    let incremental_load_registry = Arc::new(build_load_registry(warehouse_client.clone()));
+    let loader_registry = Arc::new(build_loader_registry(database_infra_manager.clone()));
     // 4. source registry
     let source_registry = Arc::new(build_source_registry(
         organization_client.clone(),
@@ -107,6 +111,13 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         database_infra_manager.clone(),
     ));
 
+    let importer_registry = Arc::new(build_importer_dataset_registry(
+        data_fetcher_registry.clone(),
+    ));
+
+    let import_dataset_v1_registry = Arc::new(build_importer_dataset_registry_v1(
+        data_fetcher_registry.clone(),
+    ));
     let dataset_registry = Arc::new(build_dataset_registry(
         warehouse_client.clone(),
         ats_client.clone(),
@@ -118,14 +129,23 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     let warehouse_logging = Arc::new(LoggingWarehouse {
         client: warehouse_client.clone(),
     });
+
+    let importer_load_registry =
+        Arc::new(build_import_loader_registry(database_infra_manager.clone()));
+    let pipeline_import_registry =
+        Arc::new(build_pipeline_import_registry(loader_registry.clone()));
     let orchestrator = Arc::new(build_orchestrator_registry(
         writter_registry.clone(),
         pipeline_registry.clone(),
-        incremental_load_registry.clone(),
+        loader_registry.clone(),
         warehouse_logging.clone(),
         dataset_registry.clone(),
         grpc_service.clone(),
+        importer_registry.clone(),
+        pipeline_import_registry.clone(),
         redis_publisher.clone(),
+        importer_load_registry.clone(),
+        import_dataset_v1_registry.clone(),
     ));
 
     // repo
@@ -169,6 +189,7 @@ async fn setup_stream_groups(manager: Arc<ConnectionManager>) -> anyhow::Result<
     let streams = vec![
         ("stream:ingestion", "ingestion-group"),
         ("stream:export", "export-group"),
+        ("stream:import", "import-group"),
     ];
 
     for (stream, group) in streams {

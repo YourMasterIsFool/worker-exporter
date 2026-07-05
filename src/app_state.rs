@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use excelstream::ExcelWriter;
 use redis::aio::ConnectionManager;
 
 use crate::{

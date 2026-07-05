@@ -1,2 +1,2 @@
-pub mod ats_vacancy_custom_field_loader;
-pub mod ats_vacancy_loader;
+pub mod oltp_ats_vacancy_field_loader;
+pub mod oltp_ats_vacancy_loader;

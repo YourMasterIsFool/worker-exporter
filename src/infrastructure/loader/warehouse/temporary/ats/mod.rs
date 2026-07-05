@@ -1,0 +1,1 @@
+pub mod warehouse_ats_vacancy_temporary;

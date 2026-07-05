@@ -3,7 +3,7 @@ use serde::Serialize;
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-use crate::domain::ingestion::organization::tenant::TenantIngestionEntity;
+use crate::domain::oltp::organization::tenant::TenantIngestionEntity;
 
 #[derive(Serialize, FromRow, Debug)]
 pub struct TenantModel {

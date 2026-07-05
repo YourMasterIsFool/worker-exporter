@@ -1,18 +1,18 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    application::grpcs::{
-        ats::decryptor::{DecryptBatchRequest, DecryptRequest},
-        gprc::GrpcService,
+    application::grpcs::{ats::decryptor::DecryptBatchRequest, gprc::GrpcService},
+    core::{
+        traits::dataset_trait::Dataset,
+        types::{CastingEnum, ExportRow},
     },
-    core::{traits::dataset_trait::Dataset, types::CastingEnum},
 };
 
 use anyhow::anyhow;
 
 use serde::{Deserialize, Serialize};
 use sqlx::QueryBuilder;
-use tokio::task::JoinSet;
+
 use tracing::debug;
 
 use uuid::Uuid;
@@ -71,10 +71,7 @@ use crate::{
     application::{
         fetch_source_regitry::DataFetcherJsonRegistry, ingestion::source_registry::SourceRegistry,
     },
-    core::{
-        traits::{load::LoadEnum, writter::writter_trait::ExportRow},
-        types::WhereField,
-    },
+    core::{traits::load::LoadEnum, types::WhereField},
     infrastructure::db::ats_client::AtsClient,
 };
 
@@ -182,8 +179,8 @@ impl Dataset for LsiCandidateDataset {
         let candidate_field_fetcher = self.data_fetcher.get("ats_candidate_field_fetcher")?;
         let experient_fetcher = self.data_fetcher.get("ats_experience_fetcher")?;
         // let experient_source = self.source.get("oltp_ats_experience_source")?;
-        let geo_fetcher = self.data_fetcher.get("master_geo_fetcher")?;
-        let master_items_fetcher = self.data_fetcher.get("master_master_items_fetcher")?;
+        let geo_fetcher = self.data_fetcher.get("MASTER_GEO")?;
+        let master_items_fetcher = self.data_fetcher.get("MASTER_ITEMS")?;
 
         let mut master_data_fetch: HashMap<String, String> = HashMap::new();
         let mut geo_master: HashMap<String, String> = HashMap::new();

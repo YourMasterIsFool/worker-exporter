@@ -30,6 +30,7 @@ pub enum LoggingStatus {
 pub enum LoggingType {
     Ingestion,
     Export,
+    Import,
 }
 
 impl LoggingType {
@@ -37,6 +38,7 @@ impl LoggingType {
         match self {
             LoggingType::Ingestion => "INGESTION".into(),
             LoggingType::Export => "EXPORT".into(),
+            LoggingType::Import => "IMPORT".into(),
         }
     }
 }

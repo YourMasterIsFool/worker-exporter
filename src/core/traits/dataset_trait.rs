@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use excelstream::streaming_reader::RowIterator;
+use calamine::Data;
 
 use crate::core::{
-    traits::{load::LoadEnum, writter::writter_trait::ExportRow},
-    types::WhereField,
+    traits::{
+        load::LoadEnum,
+        orchestrator::{ImporterColumn, ImporterConfig},
+    },
+    types::{ExportRow, ImportDatasetConfig, ImportTableResult, WhereField},
 };
 
 #[async_trait::async_trait]
@@ -29,16 +32,19 @@ pub trait Dataset {
     async fn get_min_cursor(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<String>;
 }
 
-pub struct ImportRow {
-    pub field: String,
-    pub value: serde_json::Value,
-}
-
 #[async_trait::async_trait]
-pub trait ImporterDataset {
+pub trait ImporterDataset: Send + Sync {
     async fn import(
         &self,
-        rows: &[RowIterator],
-        mapper_columns: &HashMap<i32, String>,
-    ) -> anyhow::Result<HashMap<String, Vec<ImportRow>>>;
+        rows: &[Data],
+        config: &ImportDatasetConfig,
+    ) -> anyhow::Result<HashMap<String, Vec<crate::core::types::ImportRow>>>;
+}
+#[async_trait::async_trait]
+pub trait ImporterDatasetV1: Send + Sync {
+    async fn import(
+        &self,
+        rows: &[Data],
+        config: &ImportDatasetConfig,
+    ) -> anyhow::Result<HashMap<String, ImportTableResult>>;
 }

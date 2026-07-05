@@ -1,4 +1,3 @@
-
 use std::convert::TryFrom;
 
 use serde::Serialize;
@@ -6,7 +5,7 @@ use sqlx::PgPool;
 
 use crate::{
     core::traits::etl::TypedExtractor,
-    domain::ingestion::organization::tenant_level::TenantLevelIngestionEntity,
+    domain::oltp::organization::tenant_level::TenantLevelIngestionEntity,
 };
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize)]

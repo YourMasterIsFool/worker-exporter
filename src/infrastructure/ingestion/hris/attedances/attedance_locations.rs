@@ -144,16 +144,56 @@ impl DataFetcherJson for IngestionHrisAttedanceLocationsSource {
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         let sql = format!(
-            " SELECT {} from {} ",
-            self.columns().join(","),
+            "SELECT {} FROM {}",
+            self.columns().join(", "),
             self.table().table_name()
         );
 
         let mut qb = QueryBuilder::new(&sql);
 
+        let f_list = match filters.clone() {
+            Some(f) if !f.is_empty() => f,
+            _ => return Ok(vec![]),
+        };
+
+        qb.push(" WHERE ");
+
+        for (i, filter) in f_list.iter().enumerate() {
+            if i > 0 {
+                qb.push(" AND ");
+            }
+
+            qb.push(&filter.field);
+
+            // 1. CEK OTOMATIS: Jika `values` ada isinya, langsung pakai IN
+            if let Some(vals) = &filter.values {
+                if !vals.is_empty() {
+                    qb.push(" IN (");
+                    let mut sep = qb.separated(", ");
+                    for val in vals {
+                        // BINDING LANGSUNG SEBAGAI STRING
+                        // Menghindari error "character varying = uuid"
+                        sep.push_bind(val.clone());
+                    }
+                    qb.push(")");
+
+                    continue;
+                }
+            }
+
+            // 2. FALLBACK: Jika `values` kosong/None, gunakan `value` tunggal
+            if let Some(val) = &filter.value {
+                qb.push(format!(" {} ", filter.operator));
+
+                // BINDING LANGSUNG SEBAGAI STRING
+                // Menghindari error "character varying = uuid"
+                qb.push_bind(val.clone());
+            }
+        }
+
         let parse_result = fetch_data_json::<IngestionHrisAttedanceLocations>(
             &mut qb,
-            filters,
+            None,
             &self.pool.pool,
             None,
         )
@@ -161,7 +201,7 @@ impl DataFetcherJson for IngestionHrisAttedanceLocationsSource {
 
         match parse_result {
             Ok(result) => {
-                tracing::debug!(" attendance locations source {:?}", result.clone());
+                tracing::debug!("employee source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {

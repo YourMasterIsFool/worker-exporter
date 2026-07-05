@@ -1,4 +1,4 @@
-use crate::core::traits::writter::writter_trait::{ExportRow, WritterTrait};
+use crate::core::{traits::writter::writter_trait::WritterTrait, types::ExportRow};
 use anyhow::{anyhow, Result};
 use csv::Writer;
 use std::{fs::File, io::BufWriter, path::Path}; // <-- Tambahkan import BufWriter

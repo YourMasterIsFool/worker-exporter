@@ -10,6 +10,7 @@ pub struct Repositories {
     pub logging_repo: Arc<dyn LoggingRepo + Send + Sync>,
 }
 
+
 impl Repositories {
     pub fn new(database_manager: Arc<DatabaseInfraManager>) -> Self {
         let warehouse_client = database_manager.warehouse.clone();

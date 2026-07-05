@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use tracing::debug;
-
 use crate::{
     application::grpcs::{ats::AtsDecryptorGrpc, facilitator::S3FacilitatorGrpc},
     core::config::config::Config,

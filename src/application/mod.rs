@@ -10,9 +10,10 @@ pub mod presentation;
 
 pub mod factory;
 pub mod handler;
+pub mod import;
 pub mod ingestion;
 pub mod ingestion_registry;
-pub mod load;
+pub mod loader_registry;
 pub mod orchestrator;
 pub mod pipelines;
 pub mod runner;

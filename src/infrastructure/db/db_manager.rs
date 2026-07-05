@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use crate::infrastructure::db::organization_client::OrganizationClient;
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::snapshots::organization;
 use crate::{
     core::config::database_manager::DatabaseManager,
     infrastructure::db::{
@@ -13,6 +15,7 @@ pub struct DatabaseInfraManager {
     pub ats: Arc<AtsClient>,
     pub hris: Arc<HrisClient>,
     pub master: Arc<MasterClient>,
+    pub organization: Arc<OrganizationClient>,
 }
 
 impl DatabaseInfraManager {
@@ -21,12 +24,16 @@ impl DatabaseInfraManager {
         let ats = Arc::new(AtsClient::new(database_manager.ats.clone()));
         let hris = Arc::new(HrisClient::new(database_manager.hris.clone()));
         let master = Arc::new(MasterClient::new(database_manager.master.clone()));
+        let organization = Arc::new(OrganizationClient::new(
+            database_manager.organization.clone(),
+        ));
 
         Self {
             warehouse,
             ats,
             hris,
             master,
+            organization,
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, vec};
 
 use anyhow::anyhow;
 use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
@@ -6,6 +6,7 @@ use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
 use crate::{
     application::fetch_source_regitry::DataFetcherJsonRegistry,
     core::types::{CastingEnum, WhereField},
+    infrastructure::ingestion::hris::employee::employee,
 };
 
 pub struct GeneratedEmailTemplateUsecase {
@@ -18,6 +19,13 @@ struct LookupRow {
     name: String,
 }
 
+struct MasterConfig {
+    title: String,
+    fetcher_key: String,
+    filter: Option<Vec<WhereField>>,
+    // Field opsional jika nama kolom di JSON bukan "name"
+    name_field: &'static str,
+}
 impl GeneratedEmailTemplateUsecase {
     pub async fn execute(
         &self,
@@ -61,6 +69,29 @@ impl GeneratedEmailTemplateUsecase {
             casting: Some(CastingEnum::Enum("geo_nodes_level_enum".into())),
         }];
 
+        let district_filter = vec![WhereField {
+            field: "category_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec!["019ec96a-28f6-7481-9b37-167193f35d1c".into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
+
+        let subdistrict = vec![WhereField {
+            field: "level".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec!["adm4".into()]),
+            casting: Some(CastingEnum::Enum("geo_nodes_level_enum".into())),
+        }];
+
+        let work_location_filter_group = vec![WhereField {
+            field: "category_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec!["019e95a5-f5f3-7dd8-952b-0ce16845d9bd".into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
         let work_location_filter = vec![WhereField {
             field: "tenant_id".into(),
             operator: "=".into(),
@@ -69,91 +100,162 @@ impl GeneratedEmailTemplateUsecase {
             casting: Some(CastingEnum::Uuid),
         }];
 
-        let master_geo_fetcher = self.fetcher.get("master_geo_fetcher")?;
-        let master_province = master_geo_fetcher.fetch(Some(province_filter)).await?;
-        let master_city = master_geo_fetcher.fetch(Some(city_filter)).await?;
-        let work_location_fetcher = self.fetcher.get("hris_attendance_locations_fetcher")?;
-        let work_location = work_location_fetcher
-            .fetch(Some(work_location_filter))
-            .await?;
+        let organization_filter = vec![WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec![tenant_id.into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
 
-        // TODO: sesuaikan pemetaan hasil fetch ke LookupRow sesuai struct hasil fetch kamu
-        let province_rows: Vec<LookupRow> = master_province
-            .iter()
-            .map(|row| LookupRow {
-                id: row.get("id").map(|f| f.to_string()).unwrap(),
-                name: row.get("name").map(|f| f.to_string()).unwrap_or_default(),
-            })
-            .collect();
+        let job_position_filter = vec![WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec![tenant_id.into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
 
-        let city_rows: Vec<LookupRow> = master_city
-            .iter()
-            .map(|row| LookupRow {
-                id: row.get("id").map(|f| f.to_string()).unwrap_or_default(),
-                name: row.get("name").map(|f| f.to_string()).unwrap_or_default(),
-            })
-            .collect();
+        let job_grade_filter = vec![WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec![tenant_id.into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
 
-        // Kalau work location juga dari fetcher lain, fetch di sini juga
-        let work_location_rows: Vec<LookupRow> = work_location
-            .iter()
-            .map(|row| LookupRow {
-                id: row.get("id").map(|f| f.to_string()).unwrap_or_default(),
-                name: row.get("name").map(|f| f.to_string()).unwrap_or_default(),
-            })
-            .collect(); // ganti sesuai source-nya
+        let job_level_filter = vec![WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec![tenant_id.into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
 
-        // ===== Sheet 2: master_template =====
+        let employment_status_filter = vec![WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec![tenant_id.into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
+
+        let employee_filter = vec![WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec![tenant_id.into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
+
+        let region_filter = vec![WhereField {
+            field: "category_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec!["019eab84-3b62-70ee-8574-f13596ccce55".into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
+        let masters = vec![
+            MasterConfig {
+                title: "Province".into(),
+                fetcher_key: "MASTER_GEO".into(),
+                filter: Some(province_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "City".into(),
+                fetcher_key: "MASTER_GEO".into(),
+                filter: Some(city_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "District".into(),
+                fetcher_key: "MASTER_ITEMS".into(),
+                filter: Some(district_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "Work Location".into(),
+                fetcher_key: "hris_attendance_locations_fetcher".into(),
+                filter: Some(work_location_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "Work Location GROUP".into(),
+                fetcher_key: "MASTER_ITEMS".into(),
+                filter: Some(work_location_filter_group),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "Organization".into(),
+                fetcher_key: "ORGANIZATION".into(),
+                filter: Some(organization_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "Job Position".into(),
+                fetcher_key: "JOB_POSITION".into(),
+                filter: Some(job_position_filter),
+                name_field: "position_name",
+            },
+            MasterConfig {
+                title: "Region".into(),
+                fetcher_key: "MASTER_ITEMS".into(),
+                filter: Some(region_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "Job Grade".into(),
+                fetcher_key: "JOB_GRADE".into(),
+                filter: Some(job_grade_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "Job Level".into(),
+                fetcher_key: "JOB_LEVEL".into(),
+                filter: Some(job_level_filter),
+                name_field: "name",
+            },
+            MasterConfig {
+                title: "Employee".into(),
+                fetcher_key: "EMPLOYEE".into(),
+                filter: Some(employee_filter),
+                name_field: "full_name",
+            },
+            MasterConfig {
+                title: "Employment Status".into(),
+                fetcher_key: "EMPLOYMENT_STATUS".into(),
+                filter: Some(employment_status_filter),
+                name_field: "name",
+            },
+        ];
+
         let master_sheet = workbook.add_worksheet().set_name("master_template")?;
 
-        let title_format = Format::new()
-            .set_bold()
-            .set_font_size(14)
-            .set_align(FormatAlign::Center)
-            .set_align(FormatAlign::VerticalCenter);
+        // Loop otomatis
+        for (idx, config) in masters.iter().enumerate() {
+            let fetcher = self.fetcher.get(&config.fetcher_key)?;
+            let raw_data = fetcher.fetch(config.filter.clone()).await?;
 
-        let subheader_format = Format::new()
-            .set_bold()
-            .set_border(FormatBorder::Thin)
-            .set_align(FormatAlign::Center)
-            .set_background_color("#D9D9D9");
+            let rows: Vec<LookupRow> = raw_data
+                .iter()
+                .map(|row| LookupRow {
+                    id: row.get("id").map(|f| f.to_string()).unwrap_or_default(),
+                    name: row
+                        .get(config.name_field)
+                        .map(|f| f.to_string())
+                        .unwrap_or_default(),
+                })
+                .collect();
 
-        let cell_format = Format::new().set_border(FormatBorder::Thin);
+            // 3 kolom per tabel: ID (x), Name (x+1), Gap (x+2)
+            let start_col = (idx * 3) as u16;
 
-        // Kolom: PROVINCE di A-B, gap di C, CITY di D-E, gap di F, WORK LOCATION di G-H
-        write_lookup_table(
-            master_sheet,
-            0, // start col A
-            "PROVINCE",
-            &province_rows,
-            &title_format,
-            &subheader_format,
-            &cell_format,
-        )?;
+            write_lookup_table(master_sheet, start_col, &config.title, &rows)?;
 
-        write_lookup_table(
-            master_sheet,
-            3, // start col D
-            "CITY",
-            &city_rows,
-            &title_format,
-            &subheader_format,
-            &cell_format,
-        )?;
-
-        write_lookup_table(
-            master_sheet,
-            6, // start col G
-            "WORK LOCATION",
-            &work_location_rows,
-            &title_format,
-            &subheader_format,
-            &cell_format,
-        )?;
-
-        // Atur lebar kolom biar rapi
-        for col in [0u16, 1, 3, 4, 6, 7] {
-            master_sheet.set_column_width(col, 22)?;
+            // Otomatis atur lebar untuk 2 kolom data tersebut
+            master_sheet.set_column_width(start_col, 22)?;
+            master_sheet.set_column_width(start_col + 1, 22)?;
         }
 
         workbook.save(file_path)?;
@@ -169,37 +271,37 @@ fn write_lookup_table(
     start_col: u16,
     title: &str,
     rows: &[LookupRow],
-    title_format: &Format,
-    subheader_format: &Format,
-    cell_format: &Format,
 ) -> anyhow::Result<()> {
+    // Definisi format dipindahkan ke sini
+    let title_format = Format::new()
+        .set_bold()
+        .set_font_size(14)
+        .set_align(FormatAlign::Center);
+    let subheader_format = Format::new()
+        .set_bold()
+        .set_border(FormatBorder::Thin)
+        .set_background_color("#D9D9D9");
+    let cell_format = Format::new().set_border(FormatBorder::Thin);
+
     let id_col = start_col;
     let name_col = start_col + 1;
 
-    // Row 0: title, merged di 2 kolom (id + name)
-    sheet
-        .merge_range(0, id_col, 0, name_col, title, title_format)
-        .map_err(|e| anyhow!("gagal merge title {title}: {e}"))?;
-
-    // Row 1: subheader "id" / "<Title> Name"
-    sheet.write_string_with_format(1, id_col, "id", subheader_format)?;
+    sheet.merge_range(0, id_col, 0, name_col, title, &title_format)?;
+    sheet.write_string_with_format(1, id_col, "id", &subheader_format)?;
     sheet.write_string_with_format(
         1,
         name_col,
         &format!("{} Name", to_title_case(title)),
-        subheader_format,
+        &subheader_format,
     )?;
 
-    // Data mulai row 2
     for (i, row) in rows.iter().enumerate() {
         let r = (i + 2) as u32;
-        sheet.write_string_with_format(r, id_col, &row.id, cell_format)?;
-        sheet.write_string_with_format(r, name_col, &row.name, cell_format)?;
+        sheet.write_string_with_format(r, id_col, &row.id, &cell_format)?;
+        sheet.write_string_with_format(r, name_col, &row.name, &cell_format)?;
     }
-
     Ok(())
 }
-
 fn to_title_case(s: &str) -> String {
     s.split_whitespace()
         .map(|w| {
