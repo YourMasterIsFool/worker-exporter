@@ -98,6 +98,7 @@ impl DynamicDatasetV1 {
         value: &str,
         fetcher_name: &str,
         use_cache: bool,
+        cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<Option<serde_json::Value>> {
         // 🔥 Perbaikan 1: Bersihkan spasi dan normalkan case agar key konsisten
         let clean_value = value.trim();
@@ -108,7 +109,7 @@ impl DynamicDatasetV1 {
 
         // 1. Jika diperbolehkan di-cache oleh payload JSON, cek cache hit dulu
         if use_cache {
-            if let Some(cached_val) = self.local_cache.get(&cache_key).await {
+            if let Some(cached_val) = cache.get(&cache_key).await {
                 // Ubah ke info agar terlihat jelas di log terminal konsol Anda
                 tracing::info!("🔥 CACHE HIT BERHASIL: {}", cache_key);
                 return Ok(Some(cached_val));
@@ -187,6 +188,7 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
         &self,
         rows: &[Data],
         config: &ImportDatasetConfig,
+        cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<HashMap<String, ImportTableResult>> {
         tracing::info!("Memproses matriks dataset dengan skema penamaan TableStrategy");
 
@@ -249,7 +251,7 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
                 if !raw_tokens.is_empty() {
                     let fetch_futures = raw_tokens
                         .iter()
-                        .map(|token| self.resolve_fetcher(token, fetcher_name, use_cache));
+                        .map(|token| self.resolve_fetcher(token, fetcher_name, use_cache, cache));
 
                     let fetch_results = join_all(fetch_futures).await;
 

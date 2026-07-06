@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use calamine::Data;
+use moka::future::Cache;
 
 use crate::core::{
     traits::{
@@ -46,5 +47,6 @@ pub trait ImporterDatasetV1: Send + Sync {
         &self,
         rows: &[Data],
         config: &ImportDatasetConfig,
+        cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<HashMap<String, ImportTableResult>>;
 }

@@ -1,6 +1,7 @@
 use std::env;
 
 use dotenv::dotenv;
+use tracing::info;
 
 #[derive(Debug)]
 pub struct Config {
@@ -32,9 +33,8 @@ impl Config {
             env::var("WAREHOUSE_DATABASE_URL").expect("WAREHOUSE DATABASE URL NOT DEFINED ");
         let organization_database_url =
             env::var("ORGANIZATION_DATABASE_URL").expect("ORGANIZATION DATABASE URL NOT DEFINED ");
-        let redis_url =
-            env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-
+        let redis_url = env::var("REDIS_URL").expect("REDIS_URL_GAGAL");
+        info!("redis url {}", redis_url);
         let master_database_url =
             env::var("MASTER_DATABASE_URL").expect("MASTER DATABASE URL NOT DEFINED ");
         let ats_database_url = env::var("ATS_DATABASE_URL").expect("ATS DATABASE URL NOT DEFINED ");

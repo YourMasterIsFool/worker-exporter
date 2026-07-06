@@ -10,13 +10,16 @@ use worker_exporter::core::traits::consumer::{Consumer, ConsumerMessage};
 use worker_exporter::core::traits::handler::JobHandler;
 use worker_exporter::infrastructure::redis::RedisStreamConsumer;
 // Tambahkan import ini untuk mengaktifkan try_init
-
+#[cfg(not(feature = "dhat-heap"))]
 #[global_allocator]
-static GLOBAL: tracing_tracy::client::ProfiledAllocator<std::alloc::System> =
-    tracing_tracy::client::ProfiledAllocator::new(std::alloc::System, 100);
-
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
     // 1. bootstrap → sudah include init_logger + setup_stream_groups
     let state = bootstrap().await?;
     let manager = state.manager.clone();

@@ -1,23 +1,28 @@
 use calamine::{open_workbook_auto, open_workbook_auto_from_rs, DataType, Reader};
-use std::collections::HashMap;
+use moka::future::Cache;
+use std::collections::{HashMap, HashSet};
 use std::result;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument};
 use tracing_subscriber::field;
+use tracing_subscriber::registry::Data;
 
 use crate::application::dataset::{ImporterDatasetRegistry, ImporterDatasetRegistryV1};
+use crate::application::fetch_source_regitry::DataFetcherJsonRegistry;
 use crate::application::import::import_registry::ImportLoaderRegistry;
 use crate::application::loader_registry::LoaderRegistry;
 use crate::application::pipelines::pipeline_import_registry::PipelineImportRegistry;
-use crate::core::traits::dataset_trait::{ImporterDataset, ImporterDatasetV1}; // 🔥 Pastikan mengimpor ImporterDatasetV1
+use crate::core::traits::dataset_trait::{ImporterDataset, ImporterDatasetV1};
+use crate::core::traits::etl::DataFetcherJson;
+// 🔥 Pastikan mengimpor ImporterDatasetV1
 use crate::core::traits::load::{self, ImportLoadPersitence, IncrementalLoadPersitence};
 use crate::core::traits::orchestrator::ImporterColumn;
 use crate::core::traits::pipeline::pipeline_trait::PipelineImport;
 use crate::core::types::{
     CastingEnum, ImportBulkRequest, ImportDatasetConfig, ImportRow, ImportRowBulk,
-    ImportTableResult, TableStrategy,
+    ImportTableResult, TableStrategy, WhereField,
 };
 use crate::domain::logging;
 use crate::domain::logging::entity::{LoggingEntity, LoggingStatus, LoggingType};
@@ -41,23 +46,115 @@ pub struct ImportOrchestrator {
     pub import_pipeline: Arc<PipelineImportRegistry>,
     pub logging: Arc<dyn LoggingRepo>,
     pub import_load_registry: Arc<ImportLoaderRegistry>,
+    pub local_cache: Cache<String, serde_json::Value>,
+    pub fetcher: Arc<DataFetcherJsonRegistry>,
 }
 
 impl ImportOrchestrator {
+    async fn pre_fetch_chunk_dependencies(
+        &self,
+        raw_rows: &[&[calamine::Data]], // 🔥 PERBAIKAN 1: Menggunakan calamine::Data (ini tipe enum konkretnya)
+        dataset_config: &ImportDatasetConfig,
+    ) -> anyhow::Result<()> {
+        // 1. Kumpulkan token yang Cache Miss berdasarkan nama Fetcher
+        let mut missing_fetcher_keys: HashMap<String, HashSet<(String, String)>> = HashMap::new();
+
+        // 🔥 PERBAIKAN 2: Gunakan `.fields` karena field `.fetchers` tidak eksis di ImporterConfig Anda
+        // Loop isi array fields untuk mencari mana kolom yang butuh fetcher
+        for (col_idx, field_cfg) in dataset_config.import_config.fields.iter().enumerate() {
+            // Asumsi: di dalam field_cfg Anda memiliki penanda nama fetcher yang valid
+            // (Sesuaikan `field_cfg.fetcher_name` dengan nama properti asli di struct column field Anda, misal .fetcher atau .relation)
+            let fetcher_name = match &field_cfg.fetcher {
+                Some(name) if !name.trim().is_empty() => name.trim().to_string(),
+                _ => continue, // Jika kolom ini tidak pakai fetcher, skip!
+            };
+
+            // Jika Anda memakai index eksplisit dari config gunakan itu,
+            // jika tidak, gunakan `col_idx` dari posisi urutan array.
+            let target_col = col_idx;
+
+            for row in raw_rows {
+                if let Some(cell_data) = row.get(target_col) {
+                    // 🔥 PERBAIKAN 3: Cocokkan varian berdasarkan enum calamine::Data
+                    let raw_token = match cell_data {
+                        calamine::Data::String(s) => s.to_string(),
+                        calamine::Data::Int(i) => i.to_string(),
+                        calamine::Data::Float(f) => f.to_string(),
+                        _ => cell_data.to_string(),
+                    };
+
+                    let token_string = raw_token.trim().to_string();
+                    if !token_string.is_empty() {
+                        let clean_fetcher = fetcher_name.clone();
+                        let cache_key = format!("{}:{}", clean_fetcher, token_string);
+
+                        if !self.local_cache.contains_key(&cache_key) {
+                            missing_fetcher_keys
+                                .entry(fetcher_name.clone())
+                                .or_default()
+                                .insert((token_string, cache_key));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Eksekusi Bulk Fetcher
+        for (fetcher_name, tokens_and_keys) in missing_fetcher_keys {
+            if tokens_and_keys.is_empty() {
+                continue;
+            }
+
+            let tokens_vec: Vec<String> = tokens_and_keys.iter().map(|(t, _)| t.clone()).collect();
+
+            tracing::info!(
+                "🔥 BATCH FETCH MISS: Memanggil Fetcher '{}' untuk {} data...",
+                fetcher_name,
+                tokens_vec.len()
+            );
+
+            // Ambil instance fetcher dari engine registry Anda
+            let fetcher = self.fetcher.get(&fetcher_name).map_err(|e| {
+                anyhow::anyhow!("Fetcher '{}' tidak ditemukan: {}", fetcher_name, e)
+            })?;
+
+            let filter = vec![WhereField {
+                field: "id".into(),
+                operator: "=".into(),
+                casting: Some(CastingEnum::Uuid),
+                values: Some(tokens_vec),
+                value: None,
+            }];
+
+            let rows = fetcher.fetch(Some(filter)).await?;
+
+            for hit_row in rows {
+                if let Some(id_val) = hit_row.get("id") {
+                    if let Some(id_str) = id_val.as_str() {
+                        let clean_fetcher = fetcher_name.to_uppercase();
+                        let cache_key = format!("{}:{}", clean_fetcher, id_str.trim());
+
+                        self.local_cache.insert(cache_key, hit_row.clone()).await;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn process_stream_mode(
         &self,
         url: &str,
         import_pipeline: &dyn PipelineImport,
-        dataset: &dyn ImporterDatasetV1, // 🔥 PERBAIKAN: Parameter ditambahkan kembali
+        dataset: &dyn ImporterDatasetV1,
         logging_id: &str,
         dataset_config: &ImportDatasetConfig,
         import_load_registry: &dyn ImportLoadPersitence,
     ) -> anyhow::Result<()> {
-        // 1. Ambil network bytes stream dari AWS S3 via Reqwest
         let response = reqwest::get(url).await?;
         let mut byte_stream = response.bytes_stream();
 
-        // 2. Buat file temporary di storage lokal server (/tmp)
         let tmp_file_path = format!("/tmp/import_{}.xlsx", logging_id);
         let mut tmp_file = File::create(&tmp_file_path).await?;
 
@@ -66,13 +163,11 @@ impl ImportOrchestrator {
             "Memulai streaming download dari S3 ke disk lokal..."
         );
 
-        // 3. Alirkan chunk network bytes langsung ke disk secara gradual
         while let Some(chunk_result) = byte_stream.next().await {
             let chunk = chunk_result?;
             tmp_file.write_all(&chunk).await?;
         }
 
-        // 🔥 PENTING: Flush sisa buffer OS dan pastikan file lock dilepas (drop)
         tmp_file.flush().await?;
         drop(tmp_file);
 
@@ -81,7 +176,6 @@ impl ImportOrchestrator {
             "Download selesai. Membuka file via Calamine secara lazy."
         );
 
-        // 4. Buka file dari disk menggunakan Calamine di dalam scope terisolasi `{}`
         {
             let mut workbook = calamine::open_workbook_auto(&tmp_file_path).map_err(|err| {
                 tracing::error!("Gagal membuka streaming workbook: {}", err);
@@ -91,57 +185,69 @@ impl ImportOrchestrator {
             let sheet_name = workbook.sheet_names()[0].clone();
             let range = workbook.worksheet_range(&sheet_name)?;
 
-            // Pengaturan chunk batch memori RAM
-            let mut chunk_batch: Vec<HashMap<String, ImportTableResult>> = vec![];
             let chunk_limit = dataset_config.import_config.chunk as usize;
 
-            // Iterasi baris excel (skip header)
-            for row in range.rows().skip(1) {
-                let mut row_data = dataset.import(row, &dataset_config).await?;
+            let mut raw_row_buffer = vec![];
+            let mut row_iter = range.rows().skip(1);
 
-                // Inject 'logging_id' secara dinamis ke matriks skalar (Bypass tipe Eav)
-                for (_table_name, table_result) in row_data.iter_mut() {
-                    if table_result.strategy == TableStrategy::Eav {
-                        continue;
-                    }
-                    table_result.columns.push("logging_id".to_string());
-                    for row_values in table_result.values.iter_mut() {
-                        row_values.push(Value::String(logging_id.to_string()));
+            loop {
+                raw_row_buffer.clear();
+                for _ in 0..chunk_limit {
+                    if let Some(row) = row_iter.next() {
+                        raw_row_buffer.push(row);
+                    } else {
+                        break;
                     }
                 }
 
-                chunk_batch.push(row_data);
+                if raw_row_buffer.is_empty() {
+                    break;
+                }
 
-                // 🔥 JIKA MENCAPAI LIMIT, KIRIM DATA KE LOADER & KOSONGKAN BATCH RAM
-                if chunk_batch.len() >= chunk_limit {
+                // 🔥 OPTIMASI UTAMA: Jalankan Pre-fetch massal untuk mengisi Moka Cache sebelum .import() berjalan
+                if let Err(err) = self
+                    .pre_fetch_chunk_dependencies(&raw_row_buffer, dataset_config)
+                    .await
+                {
+                    tracing::error!("Gagal menjalankan pre-fetch batch cache: {:?}", err);
+                    // Boleh di-return error atau dilanjut dengan fallback sekuensial
+                }
+
+                let mut chunk_batch: Vec<HashMap<String, ImportTableResult>> = vec![];
+
+                // Di dalam loop ini, pemanggilan `.import()` akan langsung HIT ke Moka Cache (Super Cepat!)
+                for row in &raw_row_buffer {
+                    let mut row_data = dataset
+                        .import(*row, &dataset_config, &self.local_cache)
+                        .await?;
+
+                    for (_table_name, table_result) in row_data.iter_mut() {
+                        if table_result.strategy == TableStrategy::Eav {
+                            continue;
+                        }
+                        table_result.columns.push("logging_id".to_string());
+                        for row_values in table_result.values.iter_mut() {
+                            row_values.push(Value::String(logging_id.to_string()));
+                        }
+                    }
+
+                    chunk_batch.push(row_data);
+                }
+
+                if !chunk_batch.is_empty() {
                     tracing::info!(
                         logging_id = logging_id,
-                        "Flushing stream chunk batch: {} rows",
+                        "Flushing optimized stream chunk batch: {} rows",
                         chunk_batch.len()
                     );
 
                     import_load_registry
                         .load(&chunk_batch, logging_id, &dataset_config)
                         .await?;
-
-                    chunk_batch.clear();
                 }
-            }
-
-            // Jaga-jaga jika ada sisa baris terakhir di Excel yang totalnya tidak genap kelipatan 500
-            if !chunk_batch.is_empty() {
-                tracing::info!(
-                    logging_id = logging_id,
-                    "Flushing sisa akhir stream batch: {} rows",
-                    chunk_batch.len()
-                );
-                import_load_registry
-                    .load(&chunk_batch, logging_id, &dataset_config)
-                    .await?;
             }
         }
 
-        // 5. Bersihkan file sampah temporary `.xlsx` dari disk lokal server
         if let Err(e) = std::fs::remove_file(&tmp_file_path) {
             tracing::error!(
                 "Gagal menghapus temporary file '{}': {:?}",
@@ -162,20 +268,17 @@ impl ImportOrchestrator {
         &self,
         url: &str,
         import_pipeline: &dyn PipelineImport,
-        dataset: &dyn ImporterDatasetV1, // 🔥 PERBAIKAN: Parameter ditambahkan ke signature buffer mode
+        dataset: &dyn ImporterDatasetV1,
         logging_id: &str,
         dataset_config: &ImportDatasetConfig,
         import_load_registry: &dyn ImportLoadPersitence,
     ) -> anyhow::Result<()> {
-        // 1. Download file dari S3 URL (menggunakan reqwest)
         let response = reqwest::get(url).await?;
         info!("logging id {}", logging_id);
 
         let bytes = std::fs::read("template_excel_vacancy.xlsx")?;
-        // 2. Wrap bytes dalam Cursor
         let cursor = Cursor::new(bytes);
 
-        // 3. Buka workbook
         let mut workbook = open_workbook_auto_from_rs(cursor).map_err(|err| {
             tracing::error!("error open workbook {}", err);
             err
@@ -184,49 +287,57 @@ impl ImportOrchestrator {
         let sheet_name = workbook.sheet_names()[0].clone();
         let range = workbook.worksheet_range(&sheet_name)?;
 
-        // Tipe penampung batch matriks baru
-        let mut batch: Vec<HashMap<String, ImportTableResult>> = vec![];
+        let chunk_limit = dataset_config.import_config.chunk as usize;
+        let mut raw_row_buffer = vec![];
+        let mut row_iter = range.rows().skip(1);
 
-        // 4. Iterasi baris excel (skip header)
-        for row in range.rows().skip(1) {
-            let mut row_data: HashMap<String, ImportTableResult> =
-                dataset.import(row, &dataset_config).await?;
-
-            // 5. Inject 'logging_id' menggunakan pengecekan Enum TableStrategy
-            for (_table_name, table_result) in row_data.iter_mut() {
-                if table_result.strategy == TableStrategy::Eav {
-                    continue;
-                }
-
-                table_result.columns.push("logging_id".to_string());
-
-                for row_values in table_result.values.iter_mut() {
-                    row_values.push(Value::String(logging_id.to_string()));
+        loop {
+            raw_row_buffer.clear();
+            for _ in 0..chunk_limit {
+                if let Some(row) = row_iter.next() {
+                    raw_row_buffer.push(row);
+                } else {
+                    break;
                 }
             }
 
-            batch.push(row_data);
-        }
-
-        info!("import progressing, total rows: {}", batch.len());
-        if !batch.is_empty() {
-            info!("import data batch sample: {:?}", batch[0]);
-        }
-
-        // 6. Simpan batch data matriks ke database melalui loader registry
-        match import_load_registry
-            .load(&batch, logging_id, &dataset_config)
-            .await
-        {
-            Ok(_) => {
-                info!("import successfully");
+            if raw_row_buffer.is_empty() {
+                break;
             }
-            Err(err) => {
-                tracing::error!("error import loader into temporary: {:?}", err);
-                return Err(err);
+
+            // 🔥 OPTIMASI UTAMA: Jalankan Pre-fetch massal untuk Buffer Mode juga
+            let _ = self
+                .pre_fetch_chunk_dependencies(&raw_row_buffer, dataset_config)
+                .await;
+
+            let mut chunk_batch: Vec<HashMap<String, ImportTableResult>> = vec![];
+
+            for row in &raw_row_buffer {
+                let mut row_data: HashMap<String, ImportTableResult> = dataset
+                    .import(*row, &dataset_config, &self.local_cache)
+                    .await?;
+
+                for (_table_name, table_result) in row_data.iter_mut() {
+                    if table_result.strategy == TableStrategy::Eav {
+                        continue;
+                    }
+                    table_result.columns.push("logging_id".to_string());
+                    for row_values in table_result.values.iter_mut() {
+                        row_values.push(Value::String(logging_id.to_string()));
+                    }
+                }
+
+                chunk_batch.push(row_data);
+            }
+
+            if !chunk_batch.is_empty() {
+                import_load_registry
+                    .load(&chunk_batch, logging_id, &dataset_config)
+                    .await?;
             }
         }
 
+        info!("Buffer processing completely loaded into target temporary tables.");
         Ok(())
     }
 }

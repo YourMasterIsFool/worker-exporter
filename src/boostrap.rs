@@ -58,9 +58,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
 
     let grpc_service = Arc::new(GrpcService::new(&config));
 
-    let redis_client = Client::open(
-        std::env::var(&config.redis_url).unwrap_or("redis://127.0.0.1:6379".to_string()),
-    )?;
+    let redis_client = Client::open(config.redis_url.as_str())?;
     let manager = Arc::new(ConnectionManager::new(redis_client).await.map_err(|err| {
         error!("REDIS CONNECTION {err}");
         anyhow::anyhow!(err)
@@ -146,6 +144,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         redis_publisher.clone(),
         importer_load_registry.clone(),
         import_dataset_v1_registry.clone(),
+        data_fetcher_registry.clone(),
     ));
 
     // repo

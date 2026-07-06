@@ -6,9 +6,16 @@ edition = "2021"
 authors = ["verrandyb@gmail.com"]
 description = "Rust export service"
 
+
+[features]
+# Daftarkan feature di sini agar bisa diaktifkan lewat --features
+dhat-heap = []
+
 [dependencies]
 moka = { version = "0.12", features = ["future"] }
 calamine = "0.26"
+dhat = "0.3"
+tikv-jemallocator = "0.6"
 # Stable versions untuk compatibility
 axum = "0.7.0"
 bigdecimal = { version= "0.4", features = ["serde"]}

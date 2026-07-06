@@ -1,8 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+
+use moka::future::Cache;
 
 use crate::{
     application::{
         dataset::{DatasetRegistry, ImporterDatasetRegistry, ImporterDatasetRegistryV1},
+        fetch_source_regitry::DataFetcherJsonRegistry,
         grpcs::gprc::GrpcService,
         import::import_registry::ImportLoaderRegistry,
         loader_registry::LoaderRegistry,
@@ -33,31 +36,42 @@ pub fn build_orchestrator_registry(
     publisher: Arc<dyn Publisher>,
     import_registry: Arc<ImportLoaderRegistry>,
     import_datast_registry_v1: Arc<ImporterDatasetRegistryV1>,
+    fetcher_registry: Arc<DataFetcherJsonRegistry>,
 ) -> OrchestratorRegistry {
     let mut registry = OrchestratorRegistry::new();
-
-    registry.register(
-        "IMPORT",
-        Arc::new(ImportOrchestrator {
-            grpc_service: grpc_service.clone(),
-            imporer_dataset,
-            import_pipeline,
-            logging: logging.clone(),
-            import_load_registry: import_registry.clone(),
-            import_datasetV1: import_datast_registry_v1.clone(),
-        }),
-    );
-    registry.register(
-        "EXPORT",
-        Arc::new(ExportOrchestrator {
-            pipeline,
-            writter,
-            load: loader,
-            logging,
-            dataset,
-            grpc_service,
-            publisher,
-        }),
-    );
+    // for caching data
+    let moka_config = Cache::builder()
+        .time_to_live(Duration::from_mins(30))
+        .max_capacity(20_000)
+        .build();
+    registry
+        .register(
+            "IMPORT",
+            Arc::new(ImportOrchestrator {
+                grpc_service: grpc_service.clone(),
+                imporer_dataset,
+                import_pipeline,
+                logging: logging.clone(),
+                import_load_registry: import_registry.clone(),
+                import_datasetV1: import_datast_registry_v1.clone(),
+                local_cache: moka_config,
+                fetcher: fetcher_registry.clone(),
+            }),
+        )
+        .ok();
+    registry
+        .register(
+            "EXPORT",
+            Arc::new(ExportOrchestrator {
+                pipeline,
+                writter,
+                load: loader,
+                logging,
+                dataset,
+                grpc_service,
+                publisher,
+            }),
+        )
+        .ok();
     registry
 }
