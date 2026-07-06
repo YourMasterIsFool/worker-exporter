@@ -1,3 +1,10 @@
+# Rust/Cargo build directory
 /target
-/exports
+
+# Ignore generated backup and dependency files
+**/*.rs.bk
+**/*.d
+
+# Environment files
 .env
+.env.*
