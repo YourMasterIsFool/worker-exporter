@@ -228,6 +228,42 @@ impl GeneratedEmailTemplateUsecase {
                 filter: Some(employment_status_filter),
                 name_field: "name",
             },
+            MasterConfig {
+                title: "Stage Template".into(),
+                fetcher_key: "STAGE_TEMPLATE".into(),
+                filter: None,
+                name_field: "template_name",
+            },
+            // MasterConfig {
+            //     title: "Stage Template Detail".into(),
+            //     fetcher_key: "STAGE_TEMPLATE_DETAIL".into(),
+            //     filter: None,
+            //     name_field: "name",
+            // },
+            // MasterConfig {
+            //     title: "Requirement Stage Template".into(),
+            //     fetcher_key: "REQUIREMENT_STAGE_TEMPLATE".into(),
+            //     filter: None,
+            //     name_field: "template_name",
+            // },
+            // MasterConfig {
+            //     title: "Requirement Stage Template Detail".into(),
+            //     fetcher_key: "REQUIREMENT_STAGE_TEMPLATE_DETAIL".into(),
+            //     filter: None,
+            //     name_field: "name",
+            // },
+            MasterConfig {
+                title: "Form Field".into(),
+                fetcher_key: "FORM_FIELD".into(),
+                filter: None,
+                name_field: "name",
+            },
+            // MasterConfig {
+            //     title: "Form Template Detail".into(),
+            //     fetcher_key: "FORM_TEMPLATE_DETAIL".into(),
+            //     filter: None,
+            //     name_field: "name",
+            // },
         ];
 
         let master_sheet = workbook.add_worksheet().set_name("master_template")?;

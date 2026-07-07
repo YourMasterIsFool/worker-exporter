@@ -20,7 +20,7 @@ use crate::{
     },
     infrastructure::{
         db::{ats_client::AtsClient, hris_client::HrisClient},
-        ingestion::hris::types::HrisIngestionTable,
+        ingestion::hris::{normalize_hris_filters, types::HrisIngestionTable},
     },
 };
 // Untuk numeric
@@ -143,56 +143,18 @@ impl DataFetcherJson for IngestionEmployeeStatusesSource {
         &self,
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
+        let filters = normalize_hris_filters(filters);
+
         let sql = format!(
-            "SELECT {} FROM {}",
+            " SELECT {} from {} ",
             self.columns().join(", "),
             self.table().table_name()
         );
 
         let mut qb = QueryBuilder::new(&sql);
 
-        let f_list = match filters.clone() {
-            Some(f) if !f.is_empty() => f,
-            _ => return Ok(vec![]),
-        };
-
-        qb.push(" WHERE ");
-
-        for (i, filter) in f_list.iter().enumerate() {
-            if i > 0 {
-                qb.push(" AND ");
-            }
-
-            qb.push(&filter.field);
-
-            // 1. CEK OTOMATIS: Jika `values` ada isinya, langsung pakai IN
-            if let Some(vals) = &filter.values {
-                if !vals.is_empty() {
-                    qb.push(" IN (");
-                    let mut sep = qb.separated(", ");
-                    for val in vals {
-                        // BINDING LANGSUNG SEBAGAI STRING
-                        // Menghindari error "character varying = uuid"
-                        sep.push_bind(val.clone());
-                    }
-                    qb.push(")");
-
-                    continue;
-                }
-            }
-
-            // 2. FALLBACK: Jika `values` kosong/None, gunakan `value` tunggal
-            if let Some(val) = &filter.value {
-                qb.push(format!(" {} ", filter.operator));
-
-                // BINDING LANGSUNG SEBAGAI STRING
-                // Menghindari error "character varying = uuid"
-                qb.push_bind(val.clone());
-            }
-        }
-
         let parse_result =
-            fetch_data_json::<IngestionEmployeeStatuses>(&mut qb, None, &self.pool.pool, None)
+            fetch_data_json::<IngestionEmployeeStatuses>(&mut qb, filters, &self.pool.pool, None)
                 .await;
 
         match parse_result {

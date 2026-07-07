@@ -5,6 +5,7 @@ use anyhow::Result;
 use worker_exporter::application::handler::exporter_handler::ExportHandler;
 use worker_exporter::application::handler::import_handler::ImportHandler;
 use worker_exporter::application::handler::ingestion_handler::IngestionHandler;
+use worker_exporter::application::handler::sync_handler::SyncHandler;
 use worker_exporter::boostrap::bootstrap;
 use worker_exporter::core::traits::consumer::{Consumer, ConsumerMessage};
 use worker_exporter::core::traits::handler::JobHandler;
@@ -31,6 +32,7 @@ async fn main() -> Result<()> {
         ("stream:ingestion", "ingestion-group"),
         ("stream:export", "export-group"),
         ("stream:import", "import-group"),
+        ("stream:sync", "sync-group"),
     ];
 
     for (stream, group) in streams {
@@ -70,6 +72,14 @@ async fn main() -> Result<()> {
                 consumer_name: format!("import-worker-{}", i),
             });
 
+        let sync_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+            Arc::new(RedisStreamConsumer {
+                client: manager.clone(),
+                stream_key: "stream:sync".to_string(),
+                group: "sync-group".to_string(),
+                consumer_name: format!("sync-worker-{}", i),
+            });
+
         let export_handler = ExportHandler {
             app_state: state.clone(),
             consumer: export_consumer,
@@ -78,6 +88,11 @@ async fn main() -> Result<()> {
         let import_handler = ImportHandler {
             app_state: state.clone(),
             consumer: import_consumer,
+        };
+
+        let sync_handler = SyncHandler {
+            app_state: state.clone(),
+            consumer: sync_consumer,
         };
 
         tokio::spawn(async move {
@@ -89,6 +104,12 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             if let Err(err) = import_handler.handler().await {
                 tracing::error!("import handler crashed: {:?}", err);
+            }
+        });
+
+        tokio::spawn(async move {
+            if let Err(err) = sync_handler.handler().await {
+                tracing::error!("sync handler crashed: {:?}", err);
             }
         });
     }

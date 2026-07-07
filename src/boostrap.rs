@@ -2,8 +2,10 @@ use tokio::net::unix::pipe;
 use tracing::error;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use crate::application::bulk_loader_registry::build_bulk_loader_registry;
 use crate::application::dataset::{
     build_importer_dataset_registry, build_importer_dataset_registry_v1,
+    build_sync_dataset_registry,
 };
 use crate::application::fetch_source_regitry;
 use crate::application::import::import_registry::{
@@ -94,10 +96,12 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     ));
 
     let loader_registry = Arc::new(build_loader_registry(database_infra_manager.clone()));
+    let bulk_loader_registry = Arc::new(build_bulk_loader_registry(ats_client.clone()));
     // 4. source registry
     let source_registry = Arc::new(build_source_registry(
         organization_client.clone(),
         ats_client.clone(),
+        warehouse_client.clone(),
         master_client.clone(),
     ));
     let writter_registry = Arc::new(build_writter_registry());
@@ -115,6 +119,10 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
 
     let import_dataset_v1_registry = Arc::new(build_importer_dataset_registry_v1(
         data_fetcher_registry.clone(),
+    ));
+    let sync_dataset_registry = Arc::new(build_sync_dataset_registry(
+        data_fetcher_registry.clone(),
+        source_registry.clone(),
     ));
     let dataset_registry = Arc::new(build_dataset_registry(
         warehouse_client.clone(),
@@ -145,6 +153,9 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         importer_load_registry.clone(),
         import_dataset_v1_registry.clone(),
         data_fetcher_registry.clone(),
+        sync_dataset_registry.clone(),
+        bulk_loader_registry.clone(),
+        ats_client.clone(),
     ));
 
     // repo
@@ -189,6 +200,7 @@ async fn setup_stream_groups(manager: Arc<ConnectionManager>) -> anyhow::Result<
         ("stream:ingestion", "ingestion-group"),
         ("stream:export", "export-group"),
         ("stream:import", "import-group"),
+        ("stream:sync", "sync-group"),
     ];
 
     for (stream, group) in streams {

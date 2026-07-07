@@ -5,3 +5,4 @@ pub mod ingestion;
 pub mod loader;
 pub mod pipeline;
 pub mod redis;
+pub mod source;

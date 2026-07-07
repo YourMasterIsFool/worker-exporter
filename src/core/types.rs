@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use calamine::Data;
 use serde::{Deserialize, Serialize};
 
-use crate::core::traits::orchestrator::{ImporterColumn, ImporterConfig, TypeDataEnum};
+use crate::core::traits::orchestrator::{ImporterColumn, ImporterConfig, SyncConfig, TypeDataEnum};
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct WhereField {
@@ -29,6 +31,29 @@ impl CastingEnum {
     }
 }
 
+// struct buat sync data
+#[derive(Debug, Serialize, Clone)]
+pub struct SyncPayloadDataset {
+    pub config: SyncConfig,
+    pub logging_id: String,
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
+pub struct SourceMappingTable {
+    pub columns: Vec<String>,
+    pub values: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SourceSyncConfig {
+    pub sources: HashMap<String, SourceMappingTable>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SycnTableResult {
+    pub config: SyncConfig,
+    pub sources: SourceSyncConfig,
+}
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ImportDatasetConfig {
     pub where_fields: Option<Vec<WhereField>>,

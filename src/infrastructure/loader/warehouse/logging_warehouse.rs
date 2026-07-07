@@ -35,6 +35,7 @@ pub struct LoggingWarehouseModel {
     pub email: String,
     pub total_chunk: i32,
     pub cursor: Option<String>,
+    pub config: Option<serde_json::Value>,
 }
 
 impl From<LoggingWarehouseModel> for LoggingEntity {
@@ -55,6 +56,7 @@ impl From<LoggingWarehouseModel> for LoggingEntity {
             status: value.status,
             id: value.id,
             total_chunk: value.total_chunk,
+            config: None,
         }
     }
 }
@@ -76,6 +78,7 @@ impl From<LoggingEntity> for LoggingWarehouseModel {
             status: value.logging_type,
             id: None,
             total_chunk: value.total_chunk,
+            config: value.config,
         }
     }
 }

@@ -23,6 +23,14 @@ pub struct IngestionConfig {
     pub dataset: String,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SyncConfig {
+    pub dataset: String,
+    pub aggregate: String,
+    pub logging_id: String,
+    pub chunk: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TypeDataEnum {
     #[serde(rename = "TEXT")]
@@ -64,6 +72,12 @@ pub struct SequentialTable {
     pub is_custom: bool,
     pub fk_column: String,
 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Filterable {
+    pub main_column: String,
+    pub import_column: String,
+}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ImporterConfig {
     pub fields: Vec<ImporterColumn>,
@@ -71,6 +85,10 @@ pub struct ImporterConfig {
     pub tenant_id: String,
     pub group_id: String,
     pub dataset: String,
+
+    pub main_filterable: Option<Vec<Filterable>>,
+
+    pub main_searchable: Option<Vec<String>>,
     pub key: String,
     pub data_source_type: String,
     pub pipeline: String,
@@ -91,6 +109,7 @@ pub struct OrchestratorJob {
     pub(crate) export_config: Option<ExporterConfig>,
     pub(crate) ingestion_config: Option<IngestionConfig>,
     pub(crate) import_config: Option<ImporterConfig>,
+    pub(crate) sync_config: Option<SyncConfig>,
     pub(crate) filters: Option<Vec<WhereField>>, // pub(crate) fields: Vec<ExportFields>,
 }
 #[async_trait::async_trait]

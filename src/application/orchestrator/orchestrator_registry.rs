@@ -4,13 +4,18 @@ use moka::future::Cache;
 
 use crate::{
     application::{
-        dataset::{DatasetRegistry, ImporterDatasetRegistry, ImporterDatasetRegistryV1},
+        bulk_loader_registry::BulkLoaderRegistry,
+        dataset::{
+            DatasetRegistry, ImporterDatasetRegistry, ImporterDatasetRegistryV1,
+            SyncDatasetRegistry,
+        },
         fetch_source_regitry::DataFetcherJsonRegistry,
         grpcs::gprc::GrpcService,
         import::import_registry::ImportLoaderRegistry,
         loader_registry::LoaderRegistry,
         orchestrator::{
             export_orchestrator::ExportOrchestrator, import_orchestrator::ImportOrchestrator,
+            sync_orchestrator::SyncOrchestrator,
         },
         pipelines::{
             pipeline_import_registry::PipelineImportRegistry, pipeline_registry::PipelineRegistry,
@@ -21,6 +26,7 @@ use crate::{
         orchestrator::Orchestrator, publisher::Publisher, strategy::registry::Registry,
     },
     domain::logging::repo::LoggingRepo,
+    infrastructure::db::ats_client::AtsClient,
 };
 
 pub type OrchestratorRegistry = Registry<dyn Orchestrator>;
@@ -37,12 +43,15 @@ pub fn build_orchestrator_registry(
     import_registry: Arc<ImportLoaderRegistry>,
     import_datast_registry_v1: Arc<ImporterDatasetRegistryV1>,
     fetcher_registry: Arc<DataFetcherJsonRegistry>,
+    sync_dataset: Arc<SyncDatasetRegistry>,
+    bulk_loader_registry: Arc<BulkLoaderRegistry>,
+    ats_client: Arc<AtsClient>,
 ) -> OrchestratorRegistry {
     let mut registry = OrchestratorRegistry::new();
     // for caching data
     let moka_config = Cache::builder()
         .time_to_live(Duration::from_mins(30))
-        .max_capacity(20_000)
+        .max_capacity(5000)
         .build();
     registry
         .register(
@@ -66,10 +75,21 @@ pub fn build_orchestrator_registry(
                 pipeline,
                 writter,
                 load: loader,
-                logging,
+                logging: logging.clone(),
                 dataset,
                 grpc_service,
                 publisher,
+            }),
+        )
+        .ok();
+    registry
+        .register(
+            "SYNC",
+            Arc::new(SyncOrchestrator {
+                sync_dataset,
+                bulk_loader_registry,
+                ats_client,
+                logging,
             }),
         )
         .ok();

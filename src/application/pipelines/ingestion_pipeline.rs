@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-
-
 use crate::application::ingestion::source_registry::SourceRegistry;
 
 pub struct IngestionPipeline {

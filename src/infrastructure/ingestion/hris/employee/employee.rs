@@ -20,7 +20,7 @@ use crate::{
     },
     infrastructure::{
         db::{ats_client::AtsClient, hris_client::HrisClient},
-        ingestion::hris::types::HrisIngestionTable,
+        ingestion::hris::{normalize_hris_filters, types::HrisIngestionTable},
     },
 };
 
@@ -54,56 +54,18 @@ impl DataFetcherJson for IngestionEmployeeSource {
         &self,
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
+        let filters = normalize_hris_filters(filters);
+
         let sql = format!(
-            "SELECT {} FROM {}",
+            " SELECT {} from {} ",
             self.columns().join(", "),
             self.table().table_name()
         );
 
         let mut qb = QueryBuilder::new(&sql);
 
-        let f_list = match filters.clone() {
-            Some(f) if !f.is_empty() => f,
-            _ => return Ok(vec![]),
-        };
-
-        qb.push(" WHERE ");
-
-        for (i, filter) in f_list.iter().enumerate() {
-            if i > 0 {
-                qb.push(" AND ");
-            }
-
-            // 1. Dorong kolom database asli apa adanya (tanpa tambahan ::text)
-            qb.push(&filter.field);
-
-            // 2. CEK OTOMATIS: Jika `values` ada isinya, pakai IN
-            if let Some(vals) = &filter.values {
-                if !vals.is_empty() {
-                    qb.push(" IN (");
-                    let mut sep = qb.separated(", ");
-                    for val in vals {
-                        // 🔥 PERBAIKAN: Langsung bind sebagai String biasa!
-                        // Jangan di-parse jadi Uuid karena kolom DB-nya adalah string.
-                        sep.push_bind(val.clone());
-                    }
-                    qb.push(")");
-
-                    continue;
-                }
-            }
-
-            // 3. FALLBACK: Jika `values` kosong, gunakan `value` tunggal
-            if let Some(val) = &filter.value {
-                qb.push(format!(" {} ", filter.operator));
-
-                // 🔥 PERBAIKAN: Langsung bind string aslinya ke placeholder parameter
-                qb.push_bind(val.clone());
-            }
-        }
-
         let parse_result =
-            fetch_data_json::<IngestionEmployee>(&mut qb, None, &self.pool.pool, None).await;
+            fetch_data_json::<IngestionEmployee>(&mut qb, filters, &self.pool.pool, None).await;
 
         match parse_result {
             Ok(result) => {

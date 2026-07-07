@@ -6,7 +6,9 @@ use crate::{
         strategy::registry::Registry,
     },
     infrastructure::{
-        db::{ats_client::AtsClient, master_client::MasterClient},
+        db::{
+            ats_client::AtsClient, master_client::MasterClient, warehouse_client::WarehouseClient,
+        },
         ingestion::{
             ats::{
                 applicant::applicant_bucket::AtsApplicantBucketSource,
@@ -22,6 +24,13 @@ use crate::{
                 sql::tenant::source::TenantSource,
             },
         },
+        source::warehouse::temporary::ats::{
+            ats_vacancy_custom_field_temporary::AtsVacancyCustomFieldTemporarySource,
+            ats_vacancy_pic_temporary::AtsVacancyPicTemporarySource,
+            ats_vacancy_requirement_temporary::AtsVacancyRequirementTemporarySource,
+            ats_vacancy_stage_temporary::AtsVacancyStageTemporarySource,
+            ats_vacancy_temporary::AtsVacancyTemporarySource,
+        },
     },
 };
 pub type SourceRegistry = Registry<dyn SourceIncrementalExtract + Send + Sync>;
@@ -34,6 +43,7 @@ pub struct SourceRegistryStruct {
 pub fn build_source_registry(
     organization_db: Arc<OrganizatinPostgresClient>,
     ats_db: Arc<AtsClient>,
+    warehouse_db: Arc<WarehouseClient>,
     _master_db: Arc<MasterClient>,
 ) -> SourceRegistry {
     let mut registry = SourceRegistry::new();
@@ -82,6 +92,41 @@ pub fn build_source_registry(
         "oltp_ats_education_source",
         Arc::new(AtsEducationSource {
             pool: ats_db.clone(),
+        }),
+    );
+
+    registry.register(
+        "warehouse_ats_vacancy_stage_temporary",
+        Arc::new(AtsVacancyStageTemporarySource {
+            pool: warehouse_db.clone(),
+        }),
+    );
+
+    registry.register(
+        "warehouse_ats_vacancy_requirement_temporary",
+        Arc::new(AtsVacancyRequirementTemporarySource {
+            pool: warehouse_db.clone(),
+        }),
+    );
+
+    registry.register(
+        "warehouse_ats_vacancy_custom_field_temporary",
+        Arc::new(AtsVacancyCustomFieldTemporarySource {
+            pool: warehouse_db.clone(),
+        }),
+    );
+
+    registry.register(
+        "warehouse_ats_vacancy_temporary",
+        Arc::new(AtsVacancyTemporarySource {
+            pool: warehouse_db.clone(),
+        }),
+    );
+
+    registry.register(
+        "warehouse_ats_vacancy_pic_temporary",
+        Arc::new(AtsVacancyPicTemporarySource {
+            pool: warehouse_db.clone(),
         }),
     );
     // registry.register(

@@ -1,5 +1,5 @@
 use anyhow::Result;
- // Tambahkan import ini untuk mengaktifkan try_init
+// Tambahkan import ini untuk mengaktifkan try_init
 
 use crate::boostrap::bootstrap;
 

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-
 use crate::core::traits::extractor::source_incremental_extract::SourceIncrementalExtract;
 
 pub struct ExportPipeline {

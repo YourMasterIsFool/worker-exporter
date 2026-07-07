@@ -4,6 +4,8 @@ use anyhow::Result;
 use sqlx::{QueryBuilder, Row};
 use tracing::debug;
 
+use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::model::TenantSnapshotModel;
 use crate::{
     core::traits::{
         extractor::incremental_source::{IncrementalSource, WhereField},
@@ -14,8 +16,6 @@ use crate::{
     },
     utils::build_query,
 };
-use crate::infrastructure::db::warehouse_client::WarehouseClient;
-use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::model::TenantSnapshotModel;
 
 pub struct TenantPoolQuerySnapshot {
     pub pool: Arc<WarehouseClient>,

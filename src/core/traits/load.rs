@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
-
 use crate::core::types::{
-    ImportDatasetConfig, ImportRow, ImportRowBulk, ImportTableResult, WhereField,
+    ImportDatasetConfig, ImportRow, ImportRowBulk, ImportTableResult, SycnTableResult, WhereField,
 };
+use anyhow::Result;
+use sqlx::{Postgres, Transaction};
 
 pub enum LoadEnum {
     Upsert,
@@ -45,4 +45,13 @@ impl<T: IncrementalLoadPersitence + ?Sized + Send + Sync> IncrementalLoadPersite
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64> {
         (**self).load(rows).await
     }
+}
+
+#[async_trait::async_trait]
+pub trait BulkLoaderTrait: Send + Sync {
+    async fn load(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        result: &SycnTableResult,
+    ) -> Result<i64>;
 }

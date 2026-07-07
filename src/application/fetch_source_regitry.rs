@@ -6,10 +6,18 @@ use crate::{
         db::db_manager::DatabaseInfraManager,
         ingestion::{
             ats::{
+                applicant::{
+                    requirement_stage_template::IngestionRequirementStageTemplateSource,
+                    requirement_stage_template_detail::IngestionRequirementStageTemplateDetailSource,
+                },
                 candidate::{
                     candidate::AtsCandidateSource,
                     candidate_client_field::AtsCandidateClientFieldSource,
                     education::AtsEducationSource, experient::AtsExperinceSource,
+                },
+                form::{
+                    field::IngestionFormFieldSource, template::IngestionFormTemplateSource,
+                    template_detail::IngestionFormTemplateDetailSource,
                 },
                 vacancy::vacancy::AtsVacancySource,
             },
@@ -30,6 +38,13 @@ use crate::{
                 },
                 organization_postgres_client::OrganizatinPostgresClient,
             },
+        },
+        source::warehouse::temporary::ats::{
+            ats_vacancy_custom_field_temporary::AtsVacancyCustomFieldTemporarySource,
+            ats_vacancy_pic_temporary::AtsVacancyPicTemporarySource,
+            ats_vacancy_requirement_temporary::AtsVacancyRequirementTemporarySource,
+            ats_vacancy_stage_temporary::AtsVacancyStageTemporarySource,
+            ats_vacancy_temporary::AtsVacancyTemporarySource,
         },
     },
 };
@@ -81,6 +96,97 @@ pub fn build_data_fetcher_json_registry(
     registry.register(
         "ats_vacancy_fetcher",
         Arc::new(AtsVacancySource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "WAREHOUSE_ATS_VACANCY_STAGE",
+        Arc::new(AtsVacancyStageTemporarySource {
+            pool: manager.warehouse.clone(),
+        }),
+    );
+
+    registry.register(
+        "WAREHOUSE_ATS_VACANCY_REQUIREMENT",
+        Arc::new(AtsVacancyRequirementTemporarySource {
+            pool: manager.warehouse.clone(),
+        }),
+    );
+
+    registry.register(
+        "WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD",
+        Arc::new(AtsVacancyCustomFieldTemporarySource {
+            pool: manager.warehouse.clone(),
+        }),
+    );
+
+    registry.register(
+        "WAREHOUSE_ATS_VACANCY_TEMPORARY",
+        Arc::new(AtsVacancyTemporarySource {
+            pool: manager.warehouse.clone(),
+        }),
+    );
+
+    registry.register(
+        "WAREHOUSE_ATS_VACANCY_PIC",
+        Arc::new(AtsVacancyPicTemporarySource {
+            pool: manager.warehouse.clone(),
+        }),
+    );
+
+    registry.register(
+        "STAGE_TEMPLATE",
+        Arc::new(IngestionRequirementStageTemplateSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "REQUIREMENT_STAGE_TEMPLATE",
+        Arc::new(IngestionRequirementStageTemplateSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "STAGE_TEMPLATE_DETAIL",
+        Arc::new(IngestionRequirementStageTemplateDetailSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "REQUIREMENT_STAGE_TEMPLATE_DETAIL",
+        Arc::new(IngestionRequirementStageTemplateDetailSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "FORM_TEMPLATE",
+        Arc::new(IngestionFormTemplateSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "REQUIREMENT_TEMPLATE",
+        Arc::new(IngestionFormTemplateSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "FORM_FIELD",
+        Arc::new(IngestionFormFieldSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "FORM_TEMPLATE_DETAIL",
+        Arc::new(IngestionFormTemplateDetailSource {
             pool: manager.ats.clone(),
         }),
     );

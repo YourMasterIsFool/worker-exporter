@@ -3,10 +3,7 @@ use std::sync::Arc;
 use axum::{extract::State, response::IntoResponse, Json};
 use serde::Deserialize;
 
-use crate::{
-    app_state::AppState,
-    errors::AppError,
-};
+use crate::{app_state::AppState, errors::AppError};
 
 #[derive(Debug, Deserialize)]
 pub struct PayloadLogging {

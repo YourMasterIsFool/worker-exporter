@@ -18,6 +18,7 @@ pub struct LoggingEntity {
     pub total_chunk: i32,
     pub cursor: Option<String>,
     pub stream_id: String,
+    pub config: Option<serde_json::Value>,
 }
 
 pub enum LoggingStatus {
@@ -25,12 +26,16 @@ pub enum LoggingStatus {
     Processing,
     Completed,
     Failed,
+    PartialSuccess,
+    SyncFailed,
+    SyncSuccess,
 }
 
 pub enum LoggingType {
     Ingestion,
     Export,
     Import,
+    Sync,
 }
 
 impl LoggingType {
@@ -39,6 +44,7 @@ impl LoggingType {
             LoggingType::Ingestion => "INGESTION".into(),
             LoggingType::Export => "EXPORT".into(),
             LoggingType::Import => "IMPORT".into(),
+            LoggingType::Sync => "SYNC".into(),
         }
     }
 }
@@ -50,6 +56,9 @@ impl LoggingStatus {
             LoggingStatus::Processing => "PROCESSING".into(),
             LoggingStatus::Completed => "COMPLETED".into(),
             LoggingStatus::Failed => "FAILED".into(),
+            LoggingStatus::PartialSuccess => "PARTIAL_SUCCESS".into(),
+            LoggingStatus::SyncFailed => "SYNC_FAILED".into(),
+            LoggingStatus::SyncSuccess => "SYNC_SUCCESS".into(),
         }
     }
 }

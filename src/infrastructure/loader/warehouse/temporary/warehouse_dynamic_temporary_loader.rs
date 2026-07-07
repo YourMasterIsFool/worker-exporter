@@ -59,7 +59,21 @@ impl WarehouseDynamicTemporaryLoader {
         &self,
         b: &mut sqlx::query_builder::Separated<'a, '_, Postgres, &str>,
         val: &Value,
+        col_name: &str,
     ) {
+        if col_name == "keywords" {
+            let keywords = val
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            b.push_bind(keywords);
+            return;
+        }
         match val {
             Value::Null => {
                 b.push_bind(None::<String>);
@@ -147,8 +161,15 @@ impl ImportLoadPersitence for WarehouseDynamicTemporaryLoader {
                     // Direct binding dari 2D Vector values secara linear!
                     qb.push_values(&table_data.values, |mut b, row_values| {
                         master_affected_rows += 1;
-                        for val in row_values {
-                            self.bind_dynamic_value(&mut b, val);
+                        for (i, val) in row_values.iter().enumerate() {
+                            let col_name =
+                                table_data.columns.get(i).map(|s| s.as_str()).unwrap_or("");
+
+                            if col_name == "keywords" {
+                                self.bind_dynamic_value(&mut b, val, col_name);
+                            } else {
+                                self.bind_dynamic_value(&mut b, val, col_name);
+                            }
                         }
                     });
 
@@ -267,8 +288,13 @@ impl ImportLoadPersitence for WarehouseDynamicTemporaryLoader {
 
                                 // Masukkan matrix nilai 2D values (multiple rows token) secara direct linear!
                                 qb_seq.push_values(&table_data.values, |mut b, row_values| {
-                                    for val in row_values {
-                                        self.bind_dynamic_value(&mut b, val);
+                                    for (index, val) in row_values.iter().enumerate() {
+                                        let col_name = table_data
+                                            .columns
+                                            .get(index)
+                                            .map(|s| s.as_str())
+                                            .unwrap_or("");
+                                        self.bind_dynamic_value(&mut b, val, &col_name);
                                     }
                                 });
 

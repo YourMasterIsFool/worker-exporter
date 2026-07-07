@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml">
+      <package file="$PROJECT_DIR$">
+        <enabledFeature name="default" />
+      </package>
+    </cargoProject>
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="540bbee8-a143-4b4e-b6f1-96327d4c60b1" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.continue/skills/cavecrew/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/cavecrew/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-commit/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-commit/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/SECURITY.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/__main__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/benchmark.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/cli.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/compress.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/detect.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/validate.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-help/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-help/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-review/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-review/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-stats/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-stats/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/cavecrew/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/cavecrew/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-commit/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-commit/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/SECURITY.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/__main__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/benchmark.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/cli.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/compress.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/detect.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/validate.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-help/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-help/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-review/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-review/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-stats/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-stats/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman/SKILL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ARCHITECTURE.MD" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/migrations/20260706000100_create-vacancy-stage.down.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/migrations/20260706000100_create-vacancy-stage.up.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/skills-lock.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/ats/lsi_import_vacancy_v1.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/mod.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/mod.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/mod.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env.production" beforeDir="false" afterPath="$PROJECT_DIR$/.env.production" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/export-worker-skeleton.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/dataset.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/dataset.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/fetch_source_regitry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/fetch_source_regitry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/handler/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/handler/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/import/import_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/import/import_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/ingestion/source_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/ingestion/source_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/ingestion_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/ingestion_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/export_orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/export_orchestrator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/import_orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/import_orchestrator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/pipelines/export_pipeline.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/pipelines/export_pipeline.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/pipelines/ingestion_pipeline.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/pipelines/ingestion_pipeline.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/presentation/http/list_logging_http.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/presentation/http/list_logging_http.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/presentation/http/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/presentation/http/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/presentation/http/post_detail_file_http.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/presentation/http/post_detail_file_http.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/repositories.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/repositories.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/usecases/generated_email_template_usecase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/usecases/generated_email_template_usecase.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/bin/worker.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/bin/worker.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/boostrap.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/boostrap.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/dataset_trait.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/dataset_trait.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/extractor/has_cursor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/extractor/has_cursor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/load.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/load.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/orchestrator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/strategy/export_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/strategy/export_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/strategy/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/strategy/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/templates/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/templates/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/tenants/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/tenants/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/tenants/tenant_enricher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/tenants/tenant_enricher.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/writter/schema_export_mapper.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/writter/schema_export_mapper.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/types.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/logging/entity.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/logging/entity.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/oltp/ats/vacancy.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/oltp/ats/vacancy.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/errors.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/errors.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/import/ats/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/ats/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/import/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/applicant/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/applicant/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/types.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/attedances/attedance_locations.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/attedances/attedance_locations.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/employee.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/employee.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/emplyoee_statuses.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/emplyoee_statuses.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/master/geo.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/master/geo.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/olap/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/olap/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/oltp_ats_vacancy_field_loader.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/oltp_ats_vacancy_field_loader.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/logging_warehouse.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/logging_warehouse.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/candidate_pool/upsert.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/candidate_pool/upsert.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/organization/tenants/query.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/organization/tenants/query.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/ats/warehouse_ats_vacancy_temporary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/ats/warehouse_ats_vacancy_temporary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/warehouse_dynamic_temporary_loader.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/warehouse_dynamic_temporary_loader.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/types.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/template_excel_vacancy.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/template_excel_vacancy.xlsx" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Rust File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="WBr8H3oA" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 5
+}</component>
+  <component name="ProjectId" id="3F4GjByWmqpJ51bJSauzCh1bsBV" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.rust.reset.selective.auto.import": "true",
+    "git-widget-placeholder": "TECHS-001-new-architecture",
+    "last_opened_file_path": "/Volumes/SSD/project/rust/worker-exporter",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
+    "settings.editor.selected.configurable": "language.rust.build.tool.cargo",
+    "vue.rearranger.settings.migration": "true"
+  },
+  "keyToStringList": {
+    "DatabaseDriversLRU": [
+      "postgresql"
+    ]
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/infrastructure/loader" />
+      <recent name="$PROJECT_DIR$/src/infrastructure/db" />
+    </key>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="540bbee8-a143-4b4e-b6f1-96327d4c60b1" name="Changes" comment="" />
+      <created>1781327061501</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1781327061501</updated>
+      <workItem from="1781327063316" duration="1711000" />
+      <workItem from="1781329372974" duration="652000" />
+      <workItem from="1782868924343" duration="2113000" />
+      <workItem from="1782871819137" duration="66000" />
+      <workItem from="1782871899051" duration="593000" />
+      <workItem from="1783396975059" duration="2952000" />
+      <workItem from="1783399947070" duration="4180000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+</project>

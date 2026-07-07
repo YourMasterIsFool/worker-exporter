@@ -7,6 +7,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument};
 use tracing_subscriber::field;
+use tracing_subscriber::fmt::format;
 use tracing_subscriber::registry::Data;
 
 use crate::application::dataset::{ImporterDatasetRegistry, ImporterDatasetRegistryV1};
@@ -152,113 +153,98 @@ impl ImportOrchestrator {
         dataset_config: &ImportDatasetConfig,
         import_load_registry: &dyn ImportLoadPersitence,
     ) -> anyhow::Result<()> {
-        let response = reqwest::get(url).await?;
-        let mut byte_stream = response.bytes_stream();
+        let _ = url;
+        let _ = import_pipeline;
 
-        let tmp_file_path = format!("/tmp/import_{}.xlsx", logging_id);
-        let mut tmp_file = File::create(&tmp_file_path).await?;
+        // Sementara matikan alur stream S3.
+        // let response = reqwest::get(url).await?;
+        // let mut byte_stream = response.bytes_stream();
+        // let tmp_file_path = format!("/tmp/import_{}.xlsx", logging_id);
+        // let mut tmp_file = File::create(&tmp_file_path).await?;
+        // tracing::info!(
+        //     logging_id = logging_id,
+        //     "Memulai streaming download dari S3 ke disk lokal..."
+        // );
+        // while let Some(chunk_result) = byte_stream.next().await {
+        //     let chunk = chunk_result?;
+        //     tmp_file.write_all(&chunk).await?;
+        // }
+        // tmp_file.flush().await?;
+        // drop(tmp_file);
+
+        let tmp_file_path = "template_excel_vacancy.xlsx";
 
         tracing::info!(
             logging_id = logging_id,
-            "Memulai streaming download dari S3 ke disk lokal..."
+            file = tmp_file_path,
+            "Mode stream sementara baca file lokal dari root project."
         );
 
-        while let Some(chunk_result) = byte_stream.next().await {
-            let chunk = chunk_result?;
-            tmp_file.write_all(&chunk).await?;
-        }
+        let mut workbook = calamine::open_workbook_auto(tmp_file_path).map_err(|err| {
+            tracing::error!("Gagal membuka workbook lokal: {}", err);
+            err
+        })?;
 
-        tmp_file.flush().await?;
-        drop(tmp_file);
+        let sheet_name = workbook.sheet_names()[0].clone();
+        let range = workbook.worksheet_range(&sheet_name)?;
 
-        tracing::info!(
-            logging_id = logging_id,
-            "Download selesai. Membuka file via Calamine secara lazy."
-        );
+        let chunk_limit = dataset_config.import_config.chunk as usize;
 
-        {
-            let mut workbook = calamine::open_workbook_auto(&tmp_file_path).map_err(|err| {
-                tracing::error!("Gagal membuka streaming workbook: {}", err);
-                err
-            })?;
+        let mut raw_row_buffer = vec![];
+        let mut row_iter = range.rows().skip(1);
 
-            let sheet_name = workbook.sheet_names()[0].clone();
-            let range = workbook.worksheet_range(&sheet_name)?;
-
-            let chunk_limit = dataset_config.import_config.chunk as usize;
-
-            let mut raw_row_buffer = vec![];
-            let mut row_iter = range.rows().skip(1);
-
-            loop {
-                raw_row_buffer.clear();
-                for _ in 0..chunk_limit {
-                    if let Some(row) = row_iter.next() {
-                        raw_row_buffer.push(row);
-                    } else {
-                        break;
-                    }
-                }
-
-                if raw_row_buffer.is_empty() {
+        loop {
+            raw_row_buffer.clear();
+            for _ in 0..chunk_limit {
+                if let Some(row) = row_iter.next() {
+                    raw_row_buffer.push(row);
+                } else {
                     break;
                 }
-
-                // 🔥 OPTIMASI UTAMA: Jalankan Pre-fetch massal untuk mengisi Moka Cache sebelum .import() berjalan
-                if let Err(err) = self
-                    .pre_fetch_chunk_dependencies(&raw_row_buffer, dataset_config)
-                    .await
-                {
-                    tracing::error!("Gagal menjalankan pre-fetch batch cache: {:?}", err);
-                    // Boleh di-return error atau dilanjut dengan fallback sekuensial
-                }
-
-                let mut chunk_batch: Vec<HashMap<String, ImportTableResult>> = vec![];
-
-                // Di dalam loop ini, pemanggilan `.import()` akan langsung HIT ke Moka Cache (Super Cepat!)
-                for row in &raw_row_buffer {
-                    let mut row_data = dataset
-                        .import(*row, &dataset_config, &self.local_cache)
-                        .await?;
-
-                    for (_table_name, table_result) in row_data.iter_mut() {
-                        if table_result.strategy == TableStrategy::Eav {
-                            continue;
-                        }
-                        table_result.columns.push("logging_id".to_string());
-                        for row_values in table_result.values.iter_mut() {
-                            row_values.push(Value::String(logging_id.to_string()));
-                        }
-                    }
-
-                    chunk_batch.push(row_data);
-                }
-
-                if !chunk_batch.is_empty() {
-                    tracing::info!(
-                        logging_id = logging_id,
-                        "Flushing optimized stream chunk batch: {} rows",
-                        chunk_batch.len()
-                    );
-
-                    import_load_registry
-                        .load(&chunk_batch, logging_id, &dataset_config)
-                        .await?;
-                }
             }
-        }
 
-        if let Err(e) = std::fs::remove_file(&tmp_file_path) {
-            tracing::error!(
-                "Gagal menghapus temporary file '{}': {:?}",
-                tmp_file_path,
-                e
-            );
-        } else {
-            tracing::info!(
-                "Berhasil menghapus temporary file disk '{}' secara bersih",
-                tmp_file_path
-            );
+            if raw_row_buffer.is_empty() {
+                break;
+            }
+
+            if let Err(err) = self
+                .pre_fetch_chunk_dependencies(&raw_row_buffer, dataset_config)
+                .await
+            {
+                tracing::error!("Gagal menjalankan pre-fetch batch cache: {:?}", err);
+            }
+
+            let mut chunk_batch: Vec<HashMap<String, ImportTableResult>> = vec![];
+
+            for row in &raw_row_buffer {
+                let mut row_data = dataset
+                    .import(*row, &dataset_config, &self.local_cache)
+                    .await?;
+
+                for (_table_name, table_result) in row_data.iter_mut() {
+                    if table_result.strategy == TableStrategy::Eav {
+                        continue;
+                    }
+                    table_result.columns.push("logging_id".to_string());
+                    for row_values in table_result.values.iter_mut() {
+                        row_values.push(Value::String(logging_id.to_string()));
+                    }
+                }
+
+                chunk_batch.push(row_data);
+            }
+
+            if !chunk_batch.is_empty() {
+                tracing::info!(
+                    logging_id = logging_id,
+                    "Flushing optimized stream chunk batch: {} rows",
+                    chunk_batch.len()
+                );
+
+                import_load_registry
+                    .load(&chunk_batch, logging_id, &dataset_config)
+                    .await?;
+            }
         }
 
         Ok(())
@@ -364,6 +350,7 @@ impl Orchestrator for ImportOrchestrator {
                 total_chunk: 0,
                 cursor: None,
                 stream_id: msg_id.to_string().clone(),
+                config: Some(serde_json::to_value(import_config.clone())?),
             };
 
             let logging_id = self.logging.store(logging_entity).await?;
@@ -455,7 +442,7 @@ impl Orchestrator for ImportOrchestrator {
                 };
             }
         }
-
+        self.local_cache.invalidate_all();
         Ok(())
     }
 }

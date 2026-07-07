@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use calamine::Data;
 use moka::future::Cache;
 
@@ -9,7 +9,10 @@ use crate::core::{
         load::LoadEnum,
         orchestrator::{ImporterColumn, ImporterConfig},
     },
-    types::{ExportRow, ImportDatasetConfig, ImportTableResult, WhereField},
+    types::{
+        ExportRow, ImportDatasetConfig, ImportTableResult, SycnTableResult, SyncPayloadDataset,
+        WhereField,
+    },
 };
 
 #[async_trait::async_trait]
@@ -49,4 +52,9 @@ pub trait ImporterDatasetV1: Send + Sync {
         config: &ImportDatasetConfig,
         cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<HashMap<String, ImportTableResult>>;
+}
+
+#[async_trait::async_trait]
+pub trait SyncDataset: Send + Sync {
+    async fn format(&self, payload: &SyncPayloadDataset) -> anyhow::Result<SycnTableResult>;
 }

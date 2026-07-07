@@ -1,7 +1,4 @@
-use axum::{
-    response::IntoResponse,
-    Json,
-};
+use axum::{response::IntoResponse, Json};
 use serde::Serialize;
 use thiserror::Error;
 

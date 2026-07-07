@@ -1,15 +1,13 @@
 use std::sync::Arc;
 
-use crate::{
-    domain::logging::repo::LoggingRepo,
-    infrastructure::db::db_manager::DatabaseInfraManager,
-};
 use crate::infrastructure::loader::warehouse::logging_warehouse::LoggingWarehouse;
+use crate::{
+    domain::logging::repo::LoggingRepo, infrastructure::db::db_manager::DatabaseInfraManager,
+};
 
 pub struct Repositories {
     pub logging_repo: Arc<dyn LoggingRepo + Send + Sync>,
 }
-
 
 impl Repositories {
     pub fn new(database_manager: Arc<DatabaseInfraManager>) -> Self {

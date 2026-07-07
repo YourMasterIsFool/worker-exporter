@@ -1,3 +1,4 @@
+pub mod bulk_loader_registry;
 pub mod dataset;
 pub mod errors;
 pub mod gprc_registry;

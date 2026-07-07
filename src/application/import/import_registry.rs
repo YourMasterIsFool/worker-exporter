@@ -18,7 +18,7 @@ pub fn build_import_loader_registry(manager: Arc<DatabaseInfraManager>) -> Impor
 
     registry
         .register(
-            "warehouse_ats_vacancy_temporary",
+            "WAREHOUSE_ATS_VACANCY_TEMPORARY",
             Arc::new(WarehouseAtsVacancyTemporaryLoader {
                 client: manager.warehouse.clone(),
             }),

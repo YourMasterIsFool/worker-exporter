@@ -49,20 +49,80 @@ pub struct VacancyCustomField {
     pub value_date: Option<NaiveDate>,
 }
 
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
+pub struct VacancyStage {
+    pub id: Uuid,
+    pub updated_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub vacancy_id: Uuid,
+    pub stage_name: String,
+    pub stage_type: String,
+    pub is_default: bool,
+    pub stage_email_template_id: Option<Uuid>,
+    pub stage_email_template_reject: Option<Uuid>,
+    pub sequence: i32,
+    pub is_locked: bool,
+    pub form_template_id: Option<Uuid>,
+    pub share_access: Value,
+    pub logging_id: Option<String>,
+}
+
 pub struct WarehouseAtsVacancyTemporaryLoader {
     pub client: Arc<WarehouseClient>,
 }
 
 impl WarehouseAtsVacancyTemporaryLoader {
+    fn is_uuid_column(col_name: &str) -> bool {
+        matches!(
+            col_name,
+            "id" | "tenant_id"
+                | "group_id"
+                | "parent_id"
+                | "created_by"
+                | "job_position_id"
+                | "organization_id"
+                | "employment_status_id"
+                | "work_placement_type_id"
+                | "work_location_id"
+                | "province_id"
+                | "city_id"
+                | "vacancy_id"
+                | "employee_id"
+                | "stage_email_template_id"
+                | "stage_email_template_reject"
+                | "form_template_id"
+                | "requirement_stage_template_id"
+                | "recruitment_form_template_id"
+                | "pre_onboarding_template_id"
+        ) || col_name.ends_with("_id")
+    }
+
     /// Binder cerdas untuk mencocokkan tipe data primitive JSON ke driver Postgres (SQLx)
     fn bind_dynamic_value<'a>(
         &self,
         b: &mut sqlx::query_builder::Separated<'a, '_, Postgres, &str>,
         val: &Value,
+        col_name: &str,
     ) {
+        if col_name == "keywords" {
+            if let Value::Array(arr) = val {
+                let keywords = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>();
+
+                b.push_bind(keywords);
+                return;
+            }
+        }
         match val {
             Value::Null => {
-                b.push_bind(None::<String>);
+                if Self::is_uuid_column(col_name) {
+                    b.push_bind(None::<Uuid>);
+                } else {
+                    b.push_bind(None::<String>);
+                }
             }
             Value::Bool(boolean) => {
                 b.push_bind(*boolean);
@@ -79,8 +139,11 @@ impl WarehouseAtsVacancyTemporaryLoader {
             Value::String(s) => {
                 let trimmed = s.trim();
 
+                if Self::is_uuid_column(col_name) {
+                    b.push_bind(Uuid::parse_str(trimmed).ok());
+                }
                 // 1. Coba deteksi jika string sebenarnya adalah Uuid
-                if let Ok(uuid_val) = Uuid::parse_str(trimmed) {
+                else if let Ok(uuid_val) = Uuid::parse_str(trimmed) {
                     b.push_bind(uuid_val);
                 }
                 // 2. Coba parse string ke i64 jika kolom database butuh Integer
@@ -161,8 +224,8 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
                     // Direct binding dari 2D Vector values secara linear!
                     qb.push_values(&table_data.values, |mut b, row_values| {
                         master_affected_rows += 1;
-                        for val in row_values {
-                            self.bind_dynamic_value(&mut b, val);
+                        for (index, val) in row_values.iter().enumerate() {
+                            self.bind_dynamic_value(&mut b, val, &table_data.columns[index]);
                         }
                     });
 
@@ -282,8 +345,12 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
 
                                 // Masukkan matrix nilai 2D values (multiple rows token) secara direct linear!
                                 qb_seq.push_values(&table_data.values, |mut b, row_values| {
-                                    for val in row_values {
-                                        self.bind_dynamic_value(&mut b, val);
+                                    for (index, val) in row_values.iter().enumerate() {
+                                        self.bind_dynamic_value(
+                                            &mut b,
+                                            val,
+                                            &table_data.columns[index],
+                                        );
                                     }
                                 });
 

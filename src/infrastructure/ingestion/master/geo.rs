@@ -18,8 +18,7 @@ use crate::{
         types::WhereField,
     },
     infrastructure::{
-        db::master_client::MasterClient,
-        ingestion::master::types::MasterIngestionTable,
+        db::master_client::MasterClient, ingestion::master::types::MasterIngestionTable,
     },
 };
 
