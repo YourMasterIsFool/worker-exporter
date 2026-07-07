@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::core::types::{
-    ImportDatasetConfig, ImportRow, ImportRowBulk, ImportTableResult, SycnTableResult, WhereField,
+    ImportDatasetConfig, ImportRow, ImportRowBulk, ImportTableResult, SycnTableResult,
+    SyncPayloadDataset, WhereField,
 };
 use anyhow::Result;
 use sqlx::{Postgres, Transaction};
@@ -54,4 +55,9 @@ pub trait BulkLoaderTrait: Send + Sync {
         tx: &mut Transaction<'_, Postgres>,
         result: &SycnTableResult,
     ) -> Result<i64>;
+}
+
+#[async_trait::async_trait]
+pub trait SyncAggregator: Send + Sync {
+    async fn run(&self, payload: &SyncPayloadDataset, stream_id: &str) -> Result<i64>;
 }

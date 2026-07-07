@@ -186,6 +186,10 @@ impl LoaderPersitence for WarehouseAtsVacancyTemporaryLoader {
 
 #[async_trait::async_trait]
 impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
+    #[tracing::instrument(
+        skip(self, rows, config),
+        fields(types = "warehouse_ats_vacancy_temporary_loader", logging_id = %logging_id)
+    )]
     async fn load(
         &self,
         rows: &[HashMap<String, ImportTableResult>],

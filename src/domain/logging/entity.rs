@@ -27,6 +27,7 @@ pub enum LoggingStatus {
     Completed,
     Failed,
     PartialSuccess,
+    SyncProgress,
     SyncFailed,
     SyncSuccess,
 }
@@ -57,6 +58,7 @@ impl LoggingStatus {
             LoggingStatus::Completed => "COMPLETED".into(),
             LoggingStatus::Failed => "FAILED".into(),
             LoggingStatus::PartialSuccess => "PARTIAL_SUCCESS".into(),
+            LoggingStatus::SyncProgress => "SYNC_PROGRESS".into(),
             LoggingStatus::SyncFailed => "SYNC_FAILED".into(),
             LoggingStatus::SyncSuccess => "SYNC_SUCCESS".into(),
         }

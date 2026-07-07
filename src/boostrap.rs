@@ -15,6 +15,7 @@ use crate::application::loader_registry::{self, build_loader_registry};
 use crate::application::pipelines::pipeline_import_registry::{
     self, build_pipeline_import_registry,
 };
+use crate::application::sync_aggregator_registry::build_sync_aggregator_registry;
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::infrastructure::loader;
 use crate::infrastructure::loader::warehouse::logging_warehouse::LoggingWarehouse;
@@ -135,6 +136,13 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     let warehouse_logging = Arc::new(LoggingWarehouse {
         client: warehouse_client.clone(),
     });
+    let sync_aggregator_registry = Arc::new(build_sync_aggregator_registry(
+        source_registry.clone(),
+        sync_dataset_registry.clone(),
+        bulk_loader_registry.clone(),
+        ats_client.clone(),
+        warehouse_logging.clone(),
+    ));
 
     let importer_load_registry =
         Arc::new(build_import_loader_registry(database_infra_manager.clone()));
@@ -153,9 +161,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         importer_load_registry.clone(),
         import_dataset_v1_registry.clone(),
         data_fetcher_registry.clone(),
-        sync_dataset_registry.clone(),
-        bulk_loader_registry.clone(),
-        ats_client.clone(),
+        sync_aggregator_registry.clone(),
     ));
 
     // repo

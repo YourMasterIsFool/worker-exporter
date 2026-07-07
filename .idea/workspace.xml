@@ -12,123 +12,32 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="540bbee8-a143-4b4e-b6f1-96327d4c60b1" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.continue/skills/cavecrew/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/cavecrew/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-commit/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-commit/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/SECURITY.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/__main__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/benchmark.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/cli.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/compress.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/detect.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-compress/scripts/validate.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-help/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-help/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-review/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-review/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-stats/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman-stats/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.continue/skills/caveman/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/cavecrew/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/cavecrew/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-commit/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-commit/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/SECURITY.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/__main__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/benchmark.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/cli.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/compress.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/detect.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-compress/scripts/validate.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-help/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-help/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-review/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-review/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-stats/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman-stats/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.trae/skills/caveman/SKILL.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/ARCHITECTURE.MD" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/migrations/20260706000100_create-vacancy-stage.down.sql" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/migrations/20260706000100_create-vacancy-stage.up.sql" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/skills-lock.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/ats/lsi_import_vacancy_v1.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.env.production" beforeDir="false" afterPath="$PROJECT_DIR$/.env.production" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/export-worker-skeleton.iml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/dataset.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/dataset.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/fetch_source_regitry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/fetch_source_regitry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/handler/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/handler/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/import/import_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/import/import_registry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/ingestion/source_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/ingestion/source_registry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/ingestion_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/ingestion_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/sqldialects.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/migrations/20260706070000_alter-table-vacancy-temporary.down.sql" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/migrations/20260706070000_alter-table-vacancy-temporary.up.sql" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/bulk_loader_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/bulk_loader_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/handler/handler_boostrap.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/handler/handler_boostrap.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/application/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/export_orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/export_orchestrator.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/application/orchestrator/import_orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/import_orchestrator.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/pipelines/export_pipeline.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/pipelines/export_pipeline.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/pipelines/ingestion_pipeline.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/pipelines/ingestion_pipeline.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/presentation/http/list_logging_http.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/presentation/http/list_logging_http.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/presentation/http/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/presentation/http/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/presentation/http/post_detail_file_http.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/presentation/http/post_detail_file_http.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/repositories.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/repositories.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/usecases/generated_email_template_usecase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/usecases/generated_email_template_usecase.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/bin/worker.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/bin/worker.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/sync_orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/sync_orchestrator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/runner/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/runner/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/boostrap.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/boostrap.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/traits/dataset_trait.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/dataset_trait.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/extractor/has_cursor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/extractor/has_cursor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/traits/extractor/source_incremental_extract.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/extractor/source_incremental_extract.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/traits/load.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/load.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/traits/orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/orchestrator.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/strategy/export_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/strategy/export_registry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/strategy/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/strategy/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/templates/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/templates/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/tenants/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/tenants/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/tenants/tenant_enricher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/tenants/tenant_enricher.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/writter/schema_export_mapper.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/writter/schema_export_mapper.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/types.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/logging/entity.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/logging/entity.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/oltp/ats/vacancy.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/oltp/ats/vacancy.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/errors.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/errors.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/import/ats/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/ats/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/import/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/applicant/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/applicant/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/types.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/attedances/attedance_locations.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/attedances/attedance_locations.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/employee.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/employee.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/emplyoee_statuses.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/employee/emplyoee_statuses.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/hris/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/master/geo.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/master/geo.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/olap/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/olap/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/import/lsi_vacancy_sync_dataset.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/lsi_vacancy_sync_dataset.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/vacancy/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/vacancy/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/bulk_sync_loader.rs" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/oltp_ats_vacancy_field_loader.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/oltp_ats_vacancy_field_loader.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/logging_warehouse.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/logging_warehouse.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/candidate_pool/upsert.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/candidate_pool/upsert.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/organization/tenants/query.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/snapshots/organization/tenants/query.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/ats/warehouse_ats_vacancy_temporary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/ats/warehouse_ats_vacancy_temporary.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/warehouse_dynamic_temporary_loader.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/temporary/warehouse_dynamic_temporary_loader.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/types.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/template_excel_vacancy.xlsx" beforeDir="false" afterPath="$PROJECT_DIR$/template_excel_vacancy.xlsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/redis.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/redis.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_custom_field_temporary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_custom_field_temporary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_temporary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_temporary.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -156,31 +65,31 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "TECHS-001-new-architecture",
-    "last_opened_file_path": "/Volumes/SSD/project/rust/worker-exporter",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
-    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
-    "settings.editor.selected.configurable": "language.rust.build.tool.cargo",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;TECHS-001-new-architecture&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Volumes/SSD/project/rust/worker-exporter&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
+    &quot;org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon&quot;: &quot;&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;language.rust.build.tool.cargo&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   },
-  "keyToStringList": {
-    "DatabaseDriversLRU": [
-      "postgresql"
+  &quot;keyToStringList&quot;: {
+    &quot;DatabaseDriversLRU&quot;: [
+      &quot;postgresql&quot;
     ]
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/src/infrastructure/loader" />
@@ -203,7 +112,8 @@
       <workItem from="1782871819137" duration="66000" />
       <workItem from="1782871899051" duration="593000" />
       <workItem from="1783396975059" duration="2952000" />
-      <workItem from="1783399947070" duration="4180000" />
+      <workItem from="1783399947070" duration="6443000" />
+      <workItem from="1783430839161" duration="11000" />
     </task>
     <servers />
   </component>

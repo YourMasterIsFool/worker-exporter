@@ -4,7 +4,7 @@ use crate::core::traits::{
 };
 use redis::{aio::ConnectionManager, AsyncCommands};
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, info};
 
 pub struct RedisStreamConsumer {
     pub client: Arc<ConnectionManager>,
@@ -17,13 +17,17 @@ pub struct RedisStreamConsumer {
 impl Consumer for RedisStreamConsumer {
     type Message = ConsumerMessage;
 
+    #[tracing::instrument(
+        skip(self),
+        fields(types = "redis_consumer", stream = %self.stream_key, group = %self.group, consumer = %self.consumer_name)
+    )]
     async fn consume(&self) -> anyhow::Result<Vec<Self::Message>> {
         let mut conn = self.client.as_ref().clone(); // ← self.client bukan self.conn
 
         let opts = redis::streams::StreamReadOptions::default()
             .group(&self.group, &self.consumer_name)
             .count(10)
-            .block(5000);
+            .block(100);
 
         let results: redis::streams::StreamReadReply = conn
             .xread_options(&[&self.stream_key], &[">"], &opts)
@@ -52,6 +56,10 @@ impl Consumer for RedisStreamConsumer {
         Ok(messages)
     }
 
+    #[tracing::instrument(
+        skip(self),
+        fields(types = "redis_consumer_ack", stream = %self.stream_key, group = %self.group, msg_id = %msg_id)
+    )]
     async fn ack(&self, msg_id: &str) -> anyhow::Result<()> {
         let mut conn = self.client.as_ref().clone(); // ← self.client bukan self.conn
         let _: i64 = conn.xack(&self.stream_key, &self.group, &[msg_id]).await?;
@@ -65,13 +73,30 @@ pub struct RedisPublisher {
 
 #[async_trait::async_trait]
 impl Publisher for RedisPublisher {
+    #[tracing::instrument(
+        skip(self, payload),
+        fields(types = "redis_publisher", stream = %stream_key)
+    )]
     async fn publish(&self, stream_key: &str, payload: serde_json::Value) -> anyhow::Result<()> {
         let mut conn = self.client.as_ref().clone();
         let serialize_payload = serde_json::to_string(&payload)?;
-        let _: String = conn
+
+        info!(
+            stream = stream_key,
+            payload = %payload,
+            "redis xadd start"
+        );
+
+        let message_id: String = conn
             .xadd(stream_key, "*", &[("payload", serialize_payload)])
             .await?;
 
+        info!(
+            stream = stream_key,
+            message_id = %message_id,
+            payload = %payload,
+            "redis xadd success"
+        );
         debug!("send publish {:?}", payload);
         Ok(())
     }

@@ -43,7 +43,7 @@ pub struct AtsVacancyCustomFieldTemporaryModel {
     pub reference_module: Option<String>,
     pub value_bool: Option<bool>,
     pub value_date: Option<NaiveDate>,
-    pub loggin_id: Option<Uuid>,
+    pub logging_id: Option<Uuid>,
 }
 
 pub struct AtsVacancyCustomFieldTemporarySource {
@@ -73,7 +73,7 @@ impl BuildTableTrait<WarehouseTemporaryTable> for AtsVacancyCustomFieldTemporary
             "reference_module",
             "value_bool",
             "value_date",
-            "loggin_id",
+            "logging_id",
         ]
     }
 }

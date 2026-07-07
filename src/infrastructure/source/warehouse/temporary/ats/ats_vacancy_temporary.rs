@@ -156,11 +156,60 @@ impl DataFetcherJson for AtsVacancyTemporarySource {
 
 #[async_trait::async_trait]
 impl SourceIncrementalExtract for AtsVacancyTemporarySource {
+    #[instrument(skip(self, filters), fields(types = "ats_vacancy_temporary_min_id"))]
+    async fn get_min_id(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<Option<String>> {
+        let sql = format!(" SELECT id from {} ", self.table().table_name());
+        let mut qb = QueryBuilder::new(&sql);
+
+        tracing::info!("filter min id filters {:?}", filters);
+        if let Some(filters) = filters {
+            qb.push(" WHERE 1=1 ");
+            for field in filters {
+                let bind_value = field.value.clone().or_else(|| {
+                    field
+                        .values
+                        .as_ref()
+                        .and_then(|values| values.first().cloned())
+                });
+
+                let Some(bind_value) = bind_value else {
+                    tracing::warn!(
+                        field = %field.field,
+                        operator = %field.operator,
+                        "skip min id filter because value is empty"
+                    );
+                    continue;
+                };
+
+                qb.push(format!(" AND {} {} ", field.field, field.operator))
+                    .push_bind(bind_value);
+            }
+        }
+
+        qb.push(" ORDER BY id ASC limit 1");
+
+        let result = qb
+            .build_query_scalar::<Uuid>()
+            .fetch_optional(&self.pool.pool)
+            .await
+            .map_err(|err| {
+                tracing::error!("error get min id ats vacancy temporary source {:?}", err);
+                err
+            })?;
+
+        tracing::info!("result {:?}", result.clone());
+        Ok(result.map(|id| id.to_string()))
+    }
+
+    #[instrument(
+        skip(self, strategy_enum),
+        fields(types = "ats_vacancy_temporary_extract", cursor = ?cursor, limit = %limit)
+    )]
     async fn extract(
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        _strategy_enum: &LoadEnum,
+        strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         let sql_query = format!(
             "SELECT {} FROM {}",
@@ -169,10 +218,42 @@ impl SourceIncrementalExtract for AtsVacancyTemporarySource {
         );
 
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
+        let mut has_where = false;
+
+        if let LoadEnum::Select(Some(filters), _) = strategy_enum {
+            qb.push(" WHERE 1=1");
+            has_where = true;
+
+            for field in filters {
+                let bind_value = field.value.clone().or_else(|| {
+                    field
+                        .values
+                        .as_ref()
+                        .and_then(|values| values.first().cloned())
+                });
+
+                let Some(bind_value) = bind_value else {
+                    tracing::warn!(
+                        field = %field.field,
+                        operator = %field.operator,
+                        "skip extract filter because value is empty"
+                    );
+                    continue;
+                };
+
+                qb.push(format!(" AND {} {} ", field.field, field.operator))
+                    .push_bind(bind_value);
+            }
+        }
 
         if let Some(c) = cursor {
-            qb.push(" WHERE id > ").push_bind(c);
+            if has_where {
+                qb.push(" AND id > ").push_bind(c);
+            } else {
+                qb.push(" WHERE id > ").push_bind(c);
+            }
         }
+        qb.push(" ORDER BY id ASC");
         qb.push(" LIMIT ").push_bind(limit);
 
         let result = qb

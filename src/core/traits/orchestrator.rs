@@ -25,9 +25,8 @@ pub struct IngestionConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SyncConfig {
-    pub dataset: String,
-    pub aggregate: String,
-    pub logging_id: String,
+    pub sync_aggregate: String,
+    pub logging_id: Option<String>,
     pub chunk: i64,
 }
 
@@ -78,6 +77,7 @@ pub struct Filterable {
     pub main_column: String,
     pub import_column: String,
 }
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ImporterConfig {
     pub fields: Vec<ImporterColumn>,
@@ -85,9 +85,8 @@ pub struct ImporterConfig {
     pub tenant_id: String,
     pub group_id: String,
     pub dataset: String,
-
+    pub auto_sync: bool,
     pub main_filterable: Option<Vec<Filterable>>,
-
     pub main_searchable: Option<Vec<String>>,
     pub key: String,
     pub data_source_type: String,

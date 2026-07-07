@@ -4,9 +4,10 @@ use crate::{
     core::traits::{load::BulkLoaderTrait, strategy::registry::Registry},
     infrastructure::{
         db::ats_client::AtsClient,
-        loader::oltp::ats::bulk_sync_loader::{
-            AtsVacancyBulkLoader, AtsVacancyCustomFieldBulkLoader, AtsVacancyPicBulkLoader,
-            AtsVacancyRequirementBulkLoader, AtsVacancyStageBulkLoader,
+        loader::oltp::ats::bulk_sync::{
+            bulk_custom_field::AtsVacancyCustomFieldBulkLoader, bulk_pic::AtsVacancyPicBulkLoader,
+            bulk_requirement::AtsVacancyRequirementBulkLoader,
+            bulk_stage::AtsVacancyStageBulkLoader, bulk_vacancy::AtsVacancyBulkLoader,
         },
     },
 };

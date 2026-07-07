@@ -13,6 +13,10 @@ use crate::{
 pub struct ExportRunner;
 
 impl ExportRunner {
+    #[tracing::instrument(
+        skip(dataset, logging, writter, fields, filters, cursor),
+        fields(types = "export_runner", stream_id = %id, limit = %limit)
+    )]
     pub async fn run<D, L, W>(
         dataset: &D,
         logging: &L,

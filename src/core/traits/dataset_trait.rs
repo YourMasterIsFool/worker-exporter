@@ -57,4 +57,12 @@ pub trait ImporterDatasetV1: Send + Sync {
 #[async_trait::async_trait]
 pub trait SyncDataset: Send + Sync {
     async fn format(&self, payload: &SyncPayloadDataset) -> anyhow::Result<SycnTableResult>;
+
+    async fn format_from_master(
+        &self,
+        payload: &SyncPayloadDataset,
+        _master_rows: Vec<serde_json::Value>,
+    ) -> anyhow::Result<SycnTableResult> {
+        self.format(payload).await
+    }
 }

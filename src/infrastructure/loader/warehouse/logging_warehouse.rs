@@ -88,6 +88,10 @@ pub struct LoggingWarehouse {
 }
 
 impl LoggingWarehouse {
+    fn lookup_predicate(bind_index: usize) -> String {
+        format!("(id::text = ${bind_index} OR stream_id = ${bind_index})")
+    }
+
     async fn update_commit<T: Send + Sync>(
         &self,
         stream_id: &str,
@@ -99,11 +103,10 @@ impl LoggingWarehouse {
         for<'q> T: sqlx::Encode<'q, sqlx::Postgres>,
     {
         let qb = format!(
-            "
-            UPDATE {} SET {} = $1 where 1=1 AND stream_id = $2
-        ",
+            "UPDATE {} SET {} = $1 WHERE {}",
             self.table(),
-            key
+            key,
+            Self::lookup_predicate(2)
         );
 
         sqlx::query(&qb)
@@ -207,10 +210,9 @@ impl LoggingRepo for LoggingWarehouse {
         processed_count: i64,
     ) -> anyhow::Result<()> {
         let qb = format!(
-            "
-            UPDATE {} SET processed_count = $1 where stream_id = $2
-        ",
-            self.table()
+            "UPDATE {} SET processed_count = $1 WHERE {}",
+            self.table(),
+            Self::lookup_predicate(2)
         );
 
         sqlx::query(&qb)
@@ -231,10 +233,9 @@ impl LoggingRepo for LoggingWarehouse {
     #[instrument(skip(self), fields(stream_id = %stream_id))]
     async fn mark_as_completed(&self, stream_id: &str) -> anyhow::Result<()> {
         let qb = format!(
-            "
-            UPDATE {} SET status = $1, completed_at = NOW() where  stream_id = $2
-        ",
-            self.table()
+            "UPDATE {} SET status = $1, completed_at = NOW() WHERE {}",
+            self.table(),
+            Self::lookup_predicate(2)
         );
 
         sqlx::query(&qb)
@@ -270,8 +271,9 @@ impl LoggingRepo for LoggingWarehouse {
         processed_count: i64,
     ) -> anyhow::Result<()> {
         let query = format!(
-            "UPDATE {} set cursor = $1, processed_count = $2 where stream_id = $3",
-            self.table()
+            "UPDATE {} SET cursor = $1, processed_count = $2 WHERE {}",
+            self.table(),
+            Self::lookup_predicate(3)
         );
         sqlx::query(&query)
             .bind(cursor)

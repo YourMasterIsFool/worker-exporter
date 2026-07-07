@@ -123,6 +123,10 @@ impl WarehouseDynamicTemporaryLoader {
 
 #[async_trait::async_trait]
 impl ImportLoadPersitence for WarehouseDynamicTemporaryLoader {
+    #[tracing::instrument(
+        skip(self, rows, config),
+        fields(types = "warehouse_temporary_loader", logging_id = %logging_id)
+    )]
     async fn load(
         &self,
         rows: &[HashMap<String, ImportTableResult>],

@@ -1,3 +1,5 @@
+use anyhow::Result;
+use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
@@ -5,7 +7,7 @@ use crate::{
         fetch_source_regitry::DataFetcherJsonRegistry, ingestion::source_registry::SourceRegistry,
     },
     core::{
-        traits::{dataset_trait::SyncDataset, load::LoadEnum},
+        traits::dataset_trait::SyncDataset,
         types::{
             CastingEnum, SourceMappingTable, SourceSyncConfig, SycnTableResult, SyncPayloadDataset,
             WhereField,
@@ -19,249 +21,229 @@ pub struct LsiVacancySyncDataset {
 }
 
 impl LsiVacancySyncDataset {
-    const VACANCY_TABLE: &'static str = "warehouse.ats_vacancy_temporary";
-    const CUSTOM_FIELD_TABLE: &'static str = "warehouse.ats_vacancy_custom_field";
-    const STAGE_TABLE: &'static str = "warehouse.ats_vacancy_stage";
-    const REQUIREMENT_TABLE: &'static str = "warehouse.ats_vacancy_requirement";
-    const PIC_TABLE: &'static str = "warehouse.ats_vacancy_pic";
+    const OLTP_MANAGED_COLUMNS: &'static [&'static str] =
+        &["created_at", "updated_at", "deleted_at", "created_by"];
 
-    const VACANCY_COLUMNS: &'static [&'static str] = &[
-        "id",
-        "updated_at",
-        "created_at",
-        "deleted_at",
-        "tenant_id",
-        "group_id",
-        "name",
-        "description",
-        "requirement_stage_template_id",
-        "recruitment_form_template_id",
-        "pre_onboarding_template_id",
-        "snapshot",
-        "active_publish_keys",
-        "created_by",
-        "permission_keys",
-        "job_functions",
-        "expired_date",
-        "is_confidential",
-        "headcount_quota",
-        "salary_min",
-        "salary_max",
-        "is_hide_salary",
-        "verified_status",
-        "status",
-        "is_locked",
-        "publish_at",
-        "job_position_id",
-        "job_position_meta",
-        "organization_id",
-        "organization_meta",
-        "employment_status_id",
-        "employment_status_meta",
-        "work_placement_type_id",
-        "work_placement_type_meta",
-        "work_location_id",
-        "work_location_meta",
-        "total_hired",
-        "keywords",
-        "filterable_attribute",
-        "sla",
-        "province_id",
-        "province_meta",
-        "city_id",
-        "city_meta",
-        "completion_status",
-        "current_hired",
-    ];
-    const CUSTOM_FIELD_COLUMNS: &'static [&'static str] = &[
-        "id",
-        "updated_at",
-        "created_at",
-        "deleted_at",
-        "tenant_id",
-        "group_id",
-        "parent_id",
-        "field_key",
-        "field_type",
-        "value_text",
-        "value_number",
-        "value_id",
-        "meta",
-        "reference_module",
-        "value_bool",
-        "value_date",
-        "loggin_id",
-    ];
-    const STAGE_COLUMNS: &'static [&'static str] = &[
-        "id",
-        "updated_at",
-        "created_at",
-        "deleted_at",
-        "vacancy_id",
-        "stage_name",
-        "stage_type",
-        "is_default",
-        "stage_email_template_id",
-        "stage_email_template_reject",
-        "sequence",
-        "is_locked",
-        "form_template_id",
-        "share_access",
-        "logging_id",
-    ];
-    const REQUIREMENT_COLUMNS: &'static [&'static str] = &[
-        "id",
-        "updated_at",
-        "created_at",
-        "deleted_at",
-        "vacancy_id",
-        "key_field",
-        "field_type",
-        "field_purpose",
-        "tooltip",
-        "multiple_choice_option",
-        "allowed_file_type",
-        "maximum_file",
-        "maximum_file_size_in_kb",
-        "is_default_question",
-        "is_range",
-        "compare_operator",
-        "pivot",
-        "min_pivot",
-        "max_pivot",
-        "criteria",
-        "is_mandatory",
-        "master_data",
-        "data_mapping",
-        "logging_id",
-    ];
-    const PIC_COLUMNS: &'static [&'static str] = &[
-        "id",
-        "vacancy_id",
-        "employee_id",
-        "employee_meta",
-        "is_verified",
-        "created_at",
-        "logging_id",
-    ];
-
-    fn mapping(columns: &[&str], values: Vec<serde_json::Value>) -> SourceMappingTable {
-        SourceMappingTable {
-            columns: columns.iter().map(|column| column.to_string()).collect(),
-            values,
-        }
+    /// Mapping antara key internal dan nama fetcher di registry
+    fn get_fetcher_map(&self) -> HashMap<String, String> {
+        [
+            (
+                "ATS_VACANCY_CUSTOM_FIELD",
+                "WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD",
+            ),
+            ("ATS_VACANCY_PIC", "WAREHOUSE_ATS_VACANCY_PIC"),
+            (
+                "ATS_VACANCY_REQUIREMENT",
+                "WAREHOUSE_ATS_VACANCY_REQUIREMENT",
+            ),
+            ("ATS_VACANCY_STAGE", "WAREHOUSE_ATS_VACANCY_STAGE"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
     }
 
-    fn vacancy_ids(rows: &[serde_json::Value]) -> Vec<String> {
+    fn should_sync_column(table_key: &str, column: &str) -> bool {
+        if Self::OLTP_MANAGED_COLUMNS.contains(&column) {
+            return false;
+        }
+
+        if column == "loggin_id" {
+            return false;
+        }
+
+        if table_key == "ATS_VACANCY_PIC" && column == "id" {
+            return false;
+        }
+
+        true
+    }
+
+    fn resolve_logging_id(payload: &SyncPayloadDataset, master_rows: &[Value]) -> String {
+        if !payload.logging_id.trim().is_empty() {
+            return payload.logging_id.clone();
+        }
+
+        if let Some(logging_id) = payload.config.logging_id.as_deref() {
+            if !logging_id.trim().is_empty() {
+                return logging_id.to_string();
+            }
+        }
+
+        master_rows
+            .iter()
+            .find_map(|row| row.get("logging_id")?.as_str().map(ToString::to_string))
+            .unwrap_or_default()
+    }
+
+    fn with_logging_id(rows: &[Value], logging_id: &str) -> Vec<Value> {
         rows.iter()
-            .filter_map(|row| row.get("id").and_then(|value| value.as_str()))
-            .map(ToString::to_string)
+            .map(|row| match row {
+                Value::Object(map) => {
+                    let mut normalized = map.clone();
+
+                    if let Some(value) = normalized.remove("loggin_id") {
+                        normalized.entry("logging_id".to_string()).or_insert(value);
+                    }
+
+                    if !logging_id.trim().is_empty() && !normalized.contains_key("logging_id") {
+                        normalized.insert(
+                            "logging_id".to_string(),
+                            Value::String(logging_id.to_string()),
+                        );
+                    }
+
+                    Value::Object(normalized)
+                }
+                _ => row.clone(),
+            })
             .collect()
     }
 
-    async fn fetch_by_ids(
-        &self,
-        fetcher_name: &str,
-        field: &str,
-        ids: &[String],
-    ) -> anyhow::Result<Vec<serde_json::Value>> {
-        if ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let fetcher = self.fetcher.get(fetcher_name)?;
-        fetcher
-            .fetch(Some(vec![WhereField {
-                field: field.to_string(),
-                operator: "=".to_string(),
-                value: None,
-                values: Some(ids.to_vec()),
-                casting: Some(CastingEnum::Uuid),
-            }]))
-            .await
+    /// Mengambil daftar nama kolom dari sebuah objek JSON
+    fn resolve_columns(&self, table_key: &str, value: &Value) -> Vec<String> {
+        value
+            .as_object()
+            .map(|obj| {
+                obj.keys()
+                    .filter(|column| Self::should_sync_column(table_key, column))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    async fn vacancy_rows(
+    /// Mengonversi Value array menjadi String matrix yang siap masuk ke DB
+    fn resolve_value_matrix(&self, rows: &[Value], columns: &[String]) -> Vec<Vec<Value>> {
+        rows.iter()
+            .map(|row| match row {
+                Value::Object(map) => columns
+                    .iter()
+                    .map(|column| map.get(column).cloned().unwrap_or(Value::Null))
+                    .collect(),
+                _ => vec![row.clone()],
+            })
+            .collect()
+    }
+
+    fn resolve_table(
         &self,
-        payload: &SyncPayloadDataset,
-    ) -> anyhow::Result<Vec<serde_json::Value>> {
-        let aggregate = payload.config.aggregate.trim();
-        if !aggregate.is_empty() {
-            return self
-                .fetch_by_ids(
-                    "WAREHOUSE_ATS_VACANCY_TEMPORARY",
-                    "id",
-                    &[aggregate.to_string()],
-                )
-                .await;
+        table_key: &str,
+        data: &[Value],
+        logging_id: &str,
+    ) -> anyhow::Result<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
+        let rows = Self::with_logging_id(data, logging_id);
+        let columns = self.resolve_columns(table_key, &rows[0]);
+        let values = self.resolve_value_matrix(&rows, &columns);
+
+        Ok((columns, values))
+    }
+    /// Resolver utama untuk menarik data dari fetcher berdasarkan ID lowongan
+    #[tracing::instrument(
+        skip(self, ids, result),
+        fields(types = "sync_dataset_fetcher", dataset = "LSI_VACANCY_SYNC_DATASET", vacancy_count = ids.len())
+    )]
+    async fn resolve_fetcher(
+        &self,
+        ids: &[String],
+        logging_id: &str,
+        result: &mut SycnTableResult,
+    ) -> Result<()> {
+        // insert first master table =
+        for (key, fetcher_name) in self.get_fetcher_map() {
+            let fetcher = self.fetcher.get(&fetcher_name)?;
+
+            let mut field: String = "vacancy_id".into();
+            if fetcher_name == "WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD" {
+                field = "parent_id".into();
+            }
+            let mut filters = vec![WhereField {
+                field: field,
+                casting: Some(CastingEnum::Uuid),
+                operator: "=".into(),
+                values: Some(ids.to_vec()),
+                value: None,
+            }];
+
+            if !logging_id.trim().is_empty() {
+                let logging_id_casting = if fetcher_name == "WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD" {
+                    Some(CastingEnum::Uuid)
+                } else {
+                    Some(CastingEnum::Varchar)
+                };
+
+                filters.push(WhereField {
+                    field: "logging_id".into(),
+                    casting: logging_id_casting,
+                    operator: "=".into(),
+                    values: Some(vec![logging_id.to_string()]),
+                    value: None,
+                });
+            }
+
+            let data = fetcher.fetch(Some(filters)).await?;
+            if data.is_empty() {
+                continue;
+            }
+
+            let (columns, values) = self.resolve_table(&key, &data, logging_id)?;
+
+            // 3. Masukkan ke result
+            result.sources.sources.insert(
+                key,
+                SourceMappingTable {
+                    columns,
+                    values, // Pastikan SourceMappingTable menggunakan Vec<Vec<Value>>
+                },
+            );
         }
-
-        let limit = if payload.config.chunk > 0 {
-            payload.config.chunk
-        } else {
-            100
-        };
-        let source = self.source.get("warehouse_ats_vacancy_temporary")?;
-        let (rows, _) = source
-            .extract(None, limit, &LoadEnum::Select(None, None))
-            .await?;
-
-        Ok(rows)
+        Ok(())
     }
 }
 
 #[async_trait::async_trait]
 impl SyncDataset for LsiVacancySyncDataset {
-    async fn format(&self, payload: &SyncPayloadDataset) -> anyhow::Result<SycnTableResult> {
-        let vacancy_rows = self.vacancy_rows(payload).await?;
-        let vacancy_ids = Self::vacancy_ids(&vacancy_rows);
+    async fn format(&self, _payload: &SyncPayloadDataset) -> Result<SycnTableResult> {
+        todo!("Implementasi format utama")
+    }
 
-        let custom_field_rows = self
-            .fetch_by_ids(
-                "WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD",
-                "parent_id",
-                &vacancy_ids,
-            )
-            .await?;
-        let stage_rows = self
-            .fetch_by_ids("WAREHOUSE_ATS_VACANCY_STAGE", "vacancy_id", &vacancy_ids)
-            .await?;
-        let requirement_rows = self
-            .fetch_by_ids(
-                "WAREHOUSE_ATS_VACANCY_REQUIREMENT",
-                "vacancy_id",
-                &vacancy_ids,
-            )
-            .await?;
-        let pic_rows = self
-            .fetch_by_ids("WAREHOUSE_ATS_VACANCY_PIC", "vacancy_id", &vacancy_ids)
-            .await?;
+    #[tracing::instrument(
+        skip(self, payload, master_rows),
+        fields(types = "sync_dataset", dataset = "LSI_VACANCY_SYNC_DATASET", master_rows = master_rows.len())
+    )]
+    async fn format_from_master(
+        &self,
+        payload: &SyncPayloadDataset,
+        master_rows: Vec<Value>,
+    ) -> Result<SycnTableResult> {
+        let ids: Vec<String> = master_rows
+            .iter()
+            .filter_map(|r| r.get("id")?.as_str().map(|s| s.to_string()))
+            .collect();
 
-        let mut sources = HashMap::new();
-        sources.insert(
-            Self::VACANCY_TABLE.to_string(),
-            Self::mapping(Self::VACANCY_COLUMNS, vacancy_rows),
-        );
-        sources.insert(
-            Self::CUSTOM_FIELD_TABLE.to_string(),
-            Self::mapping(Self::CUSTOM_FIELD_COLUMNS, custom_field_rows),
-        );
-        sources.insert(
-            Self::STAGE_TABLE.to_string(),
-            Self::mapping(Self::STAGE_COLUMNS, stage_rows),
-        );
-        sources.insert(
-            Self::REQUIREMENT_TABLE.to_string(),
-            Self::mapping(Self::REQUIREMENT_COLUMNS, requirement_rows),
-        );
-        sources.insert(
-            Self::PIC_TABLE.to_string(),
-            Self::mapping(Self::PIC_COLUMNS, pic_rows),
+        let logging_id = Self::resolve_logging_id(payload, &master_rows);
+        let (master_columns, master_values) =
+            self.resolve_table("ATS_VACANCY", &master_rows, &logging_id)?;
+
+        let mut master_mapper: HashMap<String, SourceMappingTable> = HashMap::new();
+
+        master_mapper.insert(
+            "ATS_VACANCY".into(),
+            SourceMappingTable {
+                columns: master_columns,
+                values: master_values,
+            },
         );
 
-        Ok(SycnTableResult {
+        let mut result = SycnTableResult {
             config: payload.config.clone(),
-            sources: SourceSyncConfig { sources },
-        })
+            sources: SourceSyncConfig {
+                sources: master_mapper,
+            },
+        };
+
+        self.resolve_fetcher(&ids, &logging_id, &mut result).await?;
+
+        Ok(result)
     }
 }

@@ -41,7 +41,7 @@ pub struct SyncPayloadDataset {
 #[derive(Debug, Serialize, Clone, Deserialize)]
 pub struct SourceMappingTable {
     pub columns: Vec<String>,
-    pub values: Vec<serde_json::Value>,
+    pub values: Vec<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Clone)]

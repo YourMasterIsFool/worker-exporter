@@ -3,33 +3,17 @@ use std::sync::Arc;
 use tracing::instrument;
 
 use crate::{
-    application::{bulk_loader_registry::BulkLoaderRegistry, dataset::SyncDatasetRegistry},
+    application::sync_aggregator_registry::SyncAggregatorRegistry,
     core::{
         traits::orchestrator::{Orchestrator, OrchestratorJob},
         types::SyncPayloadDataset,
     },
-    domain::logging::{
-        entity::{LoggingEntity, LoggingStatus, LoggingType},
-        repo::LoggingRepo,
-    },
-    infrastructure::db::ats_client::AtsClient,
+    domain::logging::{entity::LoggingStatus, repo::LoggingRepo},
 };
 
 pub struct SyncOrchestrator {
-    pub sync_dataset: Arc<SyncDatasetRegistry>,
-    pub bulk_loader_registry: Arc<BulkLoaderRegistry>,
-    pub ats_client: Arc<AtsClient>,
+    pub sync_aggregator: Arc<SyncAggregatorRegistry>,
     pub logging: Arc<dyn LoggingRepo>,
-}
-
-impl SyncOrchestrator {
-    const LOADERS: &'static [&'static str] = &[
-        "ATS_VACANCY",
-        "ATS_VACANCY_CUSTOM_FIELD",
-        "ATS_VACANCY_STAGE",
-        "ATS_VACANCY_REQUIREMENT",
-        "ATS_VACANCY_PIC",
-    ];
 }
 
 #[async_trait::async_trait]
@@ -37,71 +21,100 @@ impl Orchestrator for SyncOrchestrator {
     #[instrument(skip(self, job), fields(msg_id = %msg_id, tenant_id = %job.tenant_id, types = "sync"))]
     async fn run(&self, job: &OrchestratorJob, msg_id: &str) -> anyhow::Result<()> {
         let Some(sync_config) = &job.sync_config else {
+            tracing::error!(
+                msg_id = %msg_id,
+                tenant_id = %job.tenant_id,
+                "sync orchestrator received job without sync_config"
+            );
             return Err(anyhow::anyhow!(
                 "sync_config wajib diisi untuk sync orchestrator"
             ));
         };
 
-        let logging_entity = LoggingEntity {
-            id: None,
-            tenant_id: job.tenant_id.clone(),
-            email: job.email.clone(),
-            actor_id: job.actor_id.clone(),
-            logging_type: LoggingType::Sync.to_string(),
-            completed_at: None,
-            download_url: None,
-            status: LoggingStatus::Processing.to_string(),
-            error: None,
-            additional_info: None,
-            processed_count: 0,
-            current_chunk: 0,
-            total_chunk: 0,
-            cursor: None,
-            stream_id: msg_id.to_string(),
-            config: Some(serde_json::to_value(sync_config.clone())?),
-        };
+        tracing::info!(
+            msg_id = %msg_id,
+            tenant_id = %job.tenant_id,
+            sync_aggregate = %sync_config.sync_aggregate,
+            logging_id = ?sync_config.logging_id,
+            "sync orchestrator received job"
+        );
 
-        let logging_id = self.logging.store(logging_entity).await?;
-        let dataset = self.sync_dataset.get(&sync_config.dataset)?;
+        let logging_id = match sync_config.logging_id.clone() {
+            Some(val) => val,
+            None => "".to_string(),
+        };
+        if logging_id.is_empty() {
+            tracing::error!(
+                msg_id = %msg_id,
+                tenant_id = %job.tenant_id,
+                sync_aggregate = %sync_config.sync_aggregate,
+                "sync_config.logging_id kosong"
+            );
+            return Err(anyhow::anyhow!("sync_config.logging_id wajib diisi"));
+        }
+
         let payload = SyncPayloadDataset {
             config: sync_config.clone(),
-            logging_id,
+            logging_id: logging_id.to_string(),
         };
 
+        tracing::info!(
+            msg_id = %msg_id,
+            tenant_id = %job.tenant_id,
+            logging_id = %logging_id,
+            sync_aggregate = %sync_config.sync_aggregate,
+            chunk = sync_config.chunk,
+            "sync orchestrator running"
+        );
+
         let sync_result = async {
-            let result = dataset.format(&payload).await?;
-            let mut tx = self.ats_client.pool.begin().await?;
-            let mut processed_count = 0;
+            self.logging
+                .update_status(&logging_id, LoggingStatus::SyncProgress)
+                .await?;
+            tracing::info!(
+                msg_id = %msg_id,
+                logging_id = %logging_id,
+                sync_aggregate = %sync_config.sync_aggregate,
+                "sync status updated to SYNC_PROGRESS"
+            );
 
-            for loader_name in Self::LOADERS {
-                let loader = self.bulk_loader_registry.get(loader_name)?;
-                processed_count += loader.load(&mut tx, &result).await?;
-            }
+            let aggregator = self.sync_aggregator.get(&sync_config.sync_aggregate)?;
+            tracing::info!(
+                msg_id = %msg_id,
+                logging_id = %logging_id,
+                sync_aggregate = %sync_config.sync_aggregate,
+                "sync aggregator resolved"
+            );
 
-            tx.commit().await?;
-
-            anyhow::Ok(processed_count)
+            aggregator.run(&payload, &logging_id).await
         }
         .await;
 
         match sync_result {
             Ok(processed_count) => {
                 self.logging
-                    .update_processed_count(msg_id, processed_count)
+                    .update_processed_count(&logging_id, processed_count)
                     .await?;
                 self.logging
-                    .update_status(msg_id, LoggingStatus::SyncSuccess)
+                    .update_status(&logging_id, LoggingStatus::SyncSuccess)
                     .await?;
 
                 tracing::info!(msg_id = %msg_id, processed_count, "sync dataset formatted");
                 Ok(())
             }
             Err(err) => {
+                tracing::error!(
+                    msg_id = %msg_id,
+                    logging_id = %logging_id,
+                    sync_aggregate = %sync_config.sync_aggregate,
+                    error = %err,
+                    "sync orchestrator failed"
+                );
                 self.logging
-                    .update_status(msg_id, LoggingStatus::SyncFailed)
+                    .update_status(&logging_id, LoggingStatus::SyncFailed)
                     .await?;
                 self.logging
-                    .update_error(msg_id, Some(err.to_string()))
+                    .update_error(&logging_id, Some(err.to_string()))
                     .await?;
                 Err(err)
             }

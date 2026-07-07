@@ -4,11 +4,7 @@ use moka::future::Cache;
 
 use crate::{
     application::{
-        bulk_loader_registry::BulkLoaderRegistry,
-        dataset::{
-            DatasetRegistry, ImporterDatasetRegistry, ImporterDatasetRegistryV1,
-            SyncDatasetRegistry,
-        },
+        dataset::{DatasetRegistry, ImporterDatasetRegistry, ImporterDatasetRegistryV1},
         fetch_source_regitry::DataFetcherJsonRegistry,
         grpcs::gprc::GrpcService,
         import::import_registry::ImportLoaderRegistry,
@@ -20,13 +16,13 @@ use crate::{
         pipelines::{
             pipeline_import_registry::PipelineImportRegistry, pipeline_registry::PipelineRegistry,
         },
+        sync_aggregator_registry::SyncAggregatorRegistry,
         writter::WritterRegistry,
     },
     core::traits::{
         orchestrator::Orchestrator, publisher::Publisher, strategy::registry::Registry,
     },
     domain::logging::repo::LoggingRepo,
-    infrastructure::db::ats_client::AtsClient,
 };
 
 pub type OrchestratorRegistry = Registry<dyn Orchestrator>;
@@ -43,9 +39,7 @@ pub fn build_orchestrator_registry(
     import_registry: Arc<ImportLoaderRegistry>,
     import_datast_registry_v1: Arc<ImporterDatasetRegistryV1>,
     fetcher_registry: Arc<DataFetcherJsonRegistry>,
-    sync_dataset: Arc<SyncDatasetRegistry>,
-    bulk_loader_registry: Arc<BulkLoaderRegistry>,
-    ats_client: Arc<AtsClient>,
+    sync_aggregator: Arc<SyncAggregatorRegistry>,
 ) -> OrchestratorRegistry {
     let mut registry = OrchestratorRegistry::new();
     // for caching data
@@ -65,6 +59,7 @@ pub fn build_orchestrator_registry(
                 import_datasetV1: import_datast_registry_v1.clone(),
                 local_cache: moka_config,
                 fetcher: fetcher_registry.clone(),
+                publisher: publisher.clone(),
             }),
         )
         .ok();
@@ -86,9 +81,7 @@ pub fn build_orchestrator_registry(
         .register(
             "SYNC",
             Arc::new(SyncOrchestrator {
-                sync_dataset,
-                bulk_loader_registry,
-                ats_client,
+                sync_aggregator,
                 logging,
             }),
         )

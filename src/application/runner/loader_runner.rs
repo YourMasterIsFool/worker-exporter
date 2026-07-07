@@ -8,6 +8,10 @@ use crate::{
 pub struct LoaderRunner;
 
 impl LoaderRunner {
+    #[tracing::instrument(
+        skip(ingestion, load, logging),
+        fields(types = "loader_runner", stream_id = %stream_id)
+    )]
     pub async fn run<P, L, W>(ingestion: &P, load: &L, logging: &W, stream_id: &str) -> Result<i64>
     where
         P: PipelineTrait + Send + Sync + ?Sized,

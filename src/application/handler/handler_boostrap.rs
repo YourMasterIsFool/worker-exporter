@@ -1,6 +1,7 @@
 use std::sync::Arc;
+use std::time::Duration;
 
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::{
     application::orchestrator::orchestrator_registry::OrchestratorRegistry,
@@ -34,10 +35,17 @@ pub async fn consumer_handler(
         let messages = consumer.consume().await?; // ← block disini
 
         if messages.is_empty() {
+            tokio::time::sleep(Duration::from_millis(200)).await;
             continue; // timeout, loop lagi
         }
 
         for msg in messages {
+            info!(
+                msg_id = %msg.id,
+                orchestrator_type = orchestrator_type,
+                "consumer received message"
+            );
+
             let job = match serde_json::from_str::<OrchestratorJob>(&msg.payload) {
                 Result::Ok(data) => Some(data),
                 Err(e) => {

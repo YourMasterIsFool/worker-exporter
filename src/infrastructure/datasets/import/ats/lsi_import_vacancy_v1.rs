@@ -383,6 +383,29 @@ impl LsiImportVacancyV1 {
         }
     }
 
+    fn append_config_scope_columns(
+        &self,
+        config: &ImportDatasetConfig,
+        result: &mut HashMap<String, ImportTableResult>,
+    ) -> anyhow::Result<()> {
+        let master_table = config.import_config.master_table.as_str();
+
+        self.upsert_main_value(
+            result,
+            master_table,
+            "tenant_id",
+            Value::String(config.import_config.tenant_id.clone()),
+        )?;
+        self.upsert_main_value(
+            result,
+            master_table,
+            "group_id",
+            Value::String(config.import_config.group_id.clone()),
+        )?;
+
+        Ok(())
+    }
+
     fn insert_has_many_result(
         &self,
         result: &mut HashMap<String, ImportTableResult>,
@@ -860,6 +883,7 @@ impl ImporterDatasetV1 for LsiImportVacancyV1 {
             .import(rows, &base_config, cache)
             .await?;
 
+        self.append_config_scope_columns(config, &mut result)?;
         self.append_main_payload_columns(config, &mut result)?;
         self.append_stage_rows(rows, config, &mut result).await?;
         self.append_requirement_rows(rows, config, &mut result)

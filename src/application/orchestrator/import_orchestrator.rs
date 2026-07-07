@@ -3,6 +3,7 @@ use moka::future::Cache;
 use std::collections::{HashMap, HashSet};
 use std::result;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument};
@@ -21,6 +22,7 @@ use crate::core::traits::etl::DataFetcherJson;
 use crate::core::traits::load::{self, ImportLoadPersitence, IncrementalLoadPersitence};
 use crate::core::traits::orchestrator::ImporterColumn;
 use crate::core::traits::pipeline::pipeline_trait::PipelineImport;
+use crate::core::traits::publisher::Publisher;
 use crate::core::types::{
     CastingEnum, ImportBulkRequest, ImportDatasetConfig, ImportRow, ImportRowBulk,
     ImportTableResult, TableStrategy, WhereField,
@@ -49,9 +51,95 @@ pub struct ImportOrchestrator {
     pub import_load_registry: Arc<ImportLoaderRegistry>,
     pub local_cache: Cache<String, serde_json::Value>,
     pub fetcher: Arc<DataFetcherJsonRegistry>,
+    pub publisher: Arc<dyn Publisher + Send + Sync>,
 }
 
 impl ImportOrchestrator {
+    async fn publish_auto_sync(
+        &self,
+        job: &OrchestratorJob,
+        logging_id: &str,
+    ) -> anyhow::Result<()> {
+        let Some(sync_config) = &job.sync_config else {
+            tracing::warn!(
+                logging_id = logging_id,
+                "auto_sync aktif tapi sync_config kosong, skip publish sync"
+            );
+            return Ok(());
+        };
+
+        let mut sync_config = sync_config.clone();
+        sync_config.logging_id = Some(logging_id.to_string());
+
+        let sync_job = OrchestratorJob {
+            tenant_id: job.tenant_id.clone(),
+            email: job.email.clone(),
+            actor_id: job.actor_id.clone(),
+            orchestrator_name: "SYNC".to_string(),
+            export_config: None,
+            ingestion_config: None,
+            import_config: None,
+            sync_config: Some(sync_config),
+            filters: job.filters.clone(),
+        };
+
+        let payload = serde_json::to_value(&sync_job)?;
+        let sync_aggregate = sync_job
+            .sync_config
+            .as_ref()
+            .map(|config| config.sync_aggregate.as_str())
+            .unwrap_or("-");
+
+        tracing::info!(
+            stream = "stream:sync",
+            logging_id = logging_id,
+            sync_aggregate = sync_aggregate,
+            payload = %payload,
+            "publishing auto sync payload"
+        );
+
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            self.publisher.publish("stream:sync", payload.clone()),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {
+                tracing::info!(
+                    stream = "stream:sync",
+                    logging_id = logging_id,
+                    sync_aggregate = sync_aggregate,
+                    payload = %payload,
+                    "publish sync success"
+                );
+            }
+            Ok(Err(err)) => {
+                tracing::error!(
+                    stream = "stream:sync",
+                    logging_id = logging_id,
+                    sync_aggregate = sync_aggregate,
+                    error = %err,
+                    payload = %payload,
+                    "publish sync failed"
+                );
+                return Err(err);
+            }
+            Err(err) => {
+                tracing::error!(
+                    stream = "stream:sync",
+                    logging_id = logging_id,
+                    sync_aggregate = sync_aggregate,
+                    error = %err,
+                    payload = %payload,
+                    "publish sync timeout"
+                );
+                return Err(anyhow::anyhow!("publish stream:sync timeout: {err}"));
+            }
+        }
+
+        Ok(())
+    }
+
     async fn pre_fetch_chunk_dependencies(
         &self,
         raw_rows: &[&[calamine::Data]], // 🔥 PERBAIKAN 1: Menggunakan calamine::Data (ini tipe enum konkretnya)
@@ -398,6 +486,9 @@ impl Orchestrator for ImportOrchestrator {
                         self.logging
                             .update_status(msg_id, LoggingStatus::Completed)
                             .await?;
+                        if import_config.auto_sync {
+                            self.publish_auto_sync(job, &logging_id).await?;
+                        }
                     }
                     Err(e) => {
                         tracing::error!("process buffer mode {}", e);
@@ -427,6 +518,9 @@ impl Orchestrator for ImportOrchestrator {
                         self.logging
                             .update_status(msg_id, LoggingStatus::Completed)
                             .await?;
+                        if import_config.auto_sync {
+                            self.publish_auto_sync(job, &logging_id).await?;
+                        }
                     }
                     Err(e) => {
                         tracing::error!("process stream mode {}", e);
