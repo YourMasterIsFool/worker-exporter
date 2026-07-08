@@ -30,6 +30,8 @@ use crate::{
 };
 
 #[derive(Debug, Serialize)]
+
+#[serde(rename_all = "camelCase")] //
 struct EmailPublisher {
     email: String,
     subject: String,
