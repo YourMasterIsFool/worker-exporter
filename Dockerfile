@@ -61,4 +61,4 @@ COPY --from=builder --chown=appuser:appuser --chmod=755 /app/worker-bin /app/wor
 COPY --from=builder --chown=appuser:appuser --chmod=755 /app/http-bin /app/http
 
 USER appuser
-CMD ["./http"]
+CMD ["./worker"]

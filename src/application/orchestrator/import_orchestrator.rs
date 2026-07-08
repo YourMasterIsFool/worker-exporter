@@ -245,22 +245,22 @@ impl ImportOrchestrator {
         let _ = import_pipeline;
 
         // Sementara matikan alur stream S3.
-        // let response = reqwest::get(url).await?;
-        // let mut byte_stream = response.bytes_stream();
-        // let tmp_file_path = format!("/tmp/import_{}.xlsx", logging_id);
-        // let mut tmp_file = File::create(&tmp_file_path).await?;
-        // tracing::info!(
-        //     logging_id = logging_id,
-        //     "Memulai streaming download dari S3 ke disk lokal..."
-        // );
-        // while let Some(chunk_result) = byte_stream.next().await {
-        //     let chunk = chunk_result?;
-        //     tmp_file.write_all(&chunk).await?;
-        // }
-        // tmp_file.flush().await?;
-        // drop(tmp_file);
+        let response = reqwest::get(url).await?;
+        let mut byte_stream = response.bytes_stream();
+        let tmp_file_path = format!("/tmp/import_{}.xlsx", logging_id);
+        let mut tmp_file = File::create(&tmp_file_path).await?;
+        tracing::info!(
+            logging_id = logging_id,
+            "Memulai streaming download dari S3 ke disk lokal..."
+        );
+        while let Some(chunk_result) = byte_stream.next().await {
+            let chunk = chunk_result?;
+            tmp_file.write_all(&chunk).await?;
+        }
+        tmp_file.flush().await?;
+        drop(tmp_file);
 
-        let tmp_file_path = "template_excel_vacancy.xlsx";
+        // let tmp_file_path = "template_excel_vacancy.xlsx";
 
         tracing::info!(
             logging_id = logging_id,
