@@ -8,3 +8,8 @@
 # Environment files
 .env
 .env.*
+
+# Generated export files
+export/*
+exports/*
+excel/*
