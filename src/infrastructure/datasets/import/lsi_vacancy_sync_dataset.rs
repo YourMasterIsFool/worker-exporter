@@ -1,6 +1,9 @@
 use anyhow::Result;
 use serde_json::Value;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use crate::{
     application::{
@@ -100,17 +103,28 @@ impl LsiVacancySyncDataset {
             .collect()
     }
 
-    /// Mengambil daftar nama kolom dari sebuah objek JSON
-    fn resolve_columns(&self, table_key: &str, value: &Value) -> Vec<String> {
-        value
-            .as_object()
-            .map(|obj| {
-                obj.keys()
-                    .filter(|column| Self::should_sync_column(table_key, column))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// Mengambil daftar nama kolom dari semua row agar kolom penting tidak hilang jika row pertama null/missing.
+    fn resolve_columns(&self, table_key: &str, rows: &[Value]) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let mut columns = Vec::new();
+
+        for row in rows {
+            let Some(obj) = row.as_object() else {
+                continue;
+            };
+
+            for column in obj.keys() {
+                if Self::should_sync_column(table_key, column) && seen.insert(column.clone()) {
+                    columns.push(column.clone());
+                }
+            }
+        }
+
+        if seen.insert("logging_id".to_string()) {
+            columns.push("logging_id".to_string());
+        }
+
+        columns
     }
 
     /// Mengonversi Value array menjadi String matrix yang siap masuk ke DB
@@ -133,7 +147,7 @@ impl LsiVacancySyncDataset {
         logging_id: &str,
     ) -> anyhow::Result<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
         let rows = Self::with_logging_id(data, logging_id);
-        let columns = self.resolve_columns(table_key, &rows[0]);
+        let columns = self.resolve_columns(table_key, &rows);
         let values = self.resolve_value_matrix(&rows, &columns);
 
         Ok((columns, values))

@@ -1,318 +1,676 @@
-# Worker Exporter
+# Worker Exporter Architecture
 
-Dokumen ini menjelaskan arsitektur dan cara penggunaan `worker-exporter` berdasarkan kondisi kode saat ini, bukan desain ideal.
+Dokumen ini menjelaskan struktur `worker-exporter` berdasarkan kondisi kode saat ini. Fokus utama project ini adalah worker asynchronous untuk `IMPORT`, `EXPORT`, dan `SYNC` menggunakan Redis Stream, beberapa database PostgreSQL, dan gRPC facilitator.
+
+Last updated: 2026-07-08
 
 ## Ringkasan
 
-`worker-exporter` adalah service Rust berbasis worker yang memproses job asynchronous melalui Redis Stream. Saat ini jalur yang paling nyata dipakai adalah:
+`worker-exporter` memiliki tiga flow runtime yang aktif:
 
-- `IMPORT`: ambil file Excel dari storage, parsing per chunk, mapping ke dataset import, lalu simpan ke tabel temporary warehouse.
-- `EXPORT`: ambil data dataset dari database, tulis ke file CSV/XLSX, upload file ke facilitator gRPC, lalu publish event email.
-- `HTTP`: endpoint bantu untuk publish job import, ambil log, buat template import, dan redirect file hasil.
+- `IMPORT`: membaca payload dari `stream:import`, mengambil file import dari facilitator gRPC, parsing Excel, mapping dataset import, lalu insert/upsert ke tabel temporary warehouse.
+- `EXPORT`: membaca payload dari `stream:export`, mengambil data dari dataset export, menulis file CSV/XLSX, upload ke facilitator gRPC, lalu publish email event.
+- `SYNC`: membaca payload dari `stream:sync`, mengambil data temporary warehouse berdasarkan `logging_id`, merajut master dan child dataset, lalu bulk insert/upsert ke tabel OLTP ATS.
 
-Walau ada istilah `ingestion` di beberapa modul, implementasi aktif di binary worker saat ini fokus ke `IMPORT` dan `EXPORT`.
+Flow `INGESTION` masih ada struktur dan stream group-nya, tetapi worker saat ini tidak men-spawn `IngestionHandler`, jadi belum aktif end-to-end.
 
-## Status Implementasi Saat Ini
-
-Status nyata repo:
-
-- `cargo check` lolos.
-- Masih ada banyak warning dan sebagian modul masih placeholder.
-- Worker aktif membuat consumer group untuk `stream:ingestion`, `stream:export`, dan `stream:import`.
-- Worker yang benar-benar di-spawn saat runtime hanya consumer `EXPORT` dan `IMPORT`.
-- `PipelineRegistry` untuk ingestion/export lama masih kosong, jadi sebagian desain lama belum benar-benar dipakai.
-
-Kesimpulan singkat:
-
-- Repo ini sudah bisa disebut worker import/export.
-- Repo ini belum rapi penuh sebagai platform ingestion generik atau OLAP matang.
-
-## Gambaran Arsitektur
+## Runtime Topology
 
 ```mermaid
 flowchart LR
-    A["Redis Streams"] --> B["Handler"]
-    B --> C["Orchestrator Registry"]
-    C --> D["Import Orchestrator"]
-    C --> E["Export Orchestrator"]
+    Redis["Redis Streams"] --> ImportStream["stream:import"]
+    Redis --> ExportStream["stream:export"]
+    Redis --> SyncStream["stream:sync"]
 
-    D --> F["Importer Dataset Registry"]
-    D --> G["Import Loader Registry"]
-    D --> H["Fetcher Registry"]
-    G --> I["Warehouse Temporary Tables"]
+    ImportStream --> ImportHandler["ImportHandler"]
+    ExportStream --> ExportHandler["ExportHandler"]
+    SyncStream --> SyncHandler["SyncHandler"]
 
-    E --> J["Dataset Registry"]
-    E --> K["Writer Registry"]
-    J --> L["PostgreSQL / ATS Source"]
-    K --> M["CSV / XLSX File"]
-    M --> N["Facilitator gRPC"]
-    N --> O["stream:email"]
+    ImportHandler --> ImportOrch["IMPORT Orchestrator"]
+    ExportHandler --> ExportOrch["EXPORT Orchestrator"]
+    SyncHandler --> SyncOrch["SYNC Orchestrator"]
 
-    P["HTTP API"] --> A
-    P --> Q["Usecases / Logging"]
+    ImportOrch --> ImportDataset["ImporterDatasetV1"]
+    ImportOrch --> ImportLoader["ImportLoaderRegistry"]
+    ImportLoader --> WarehouseTmp["Warehouse Temporary Tables"]
+    ImportOrch --> AutoSync["publish stream:sync when auto_sync=true"]
+
+    ExportOrch --> ExportDataset["DatasetRegistry"]
+    ExportOrch --> Writer["WritterRegistry"]
+    Writer --> File["exports/*.csv or *.xlsx"]
+    File --> Facilitator["Facilitator gRPC"]
+    Facilitator --> EmailStream["stream:email"]
+
+    SyncOrch --> SyncAggregator["SyncAggregatorRegistry"]
+    SyncAggregator --> MasterSource["SourceRegistry: warehouse_ats_vacancy_temporary"]
+    SyncAggregator --> SyncDataset["SyncDatasetRegistry: LSI_VACANCY_SYNC_DATASET"]
+    SyncDataset --> ChildFetchers["Warehouse child fetchers"]
+    SyncAggregator --> BulkLoaders["BulkLoaderRegistry"]
+    BulkLoaders --> AtsOltp["ATS OLTP tables"]
 ```
 
-## Layer Utama
+## Folder Structure
 
-### 1. Entry Point
+```text
+src/
+  bin/
+    worker.rs                 # worker Redis Stream
+    http.rs                   # HTTP API
+  application/
+    handler/                  # Redis message handlers
+    orchestrator/             # IMPORT, EXPORT, SYNC coordinator
+    runner/                   # ExportRunner, LoaderRunner, SyncRunner
+    dataset.rs                # export/import/sync dataset registries
+    fetch_source_regitry.rs   # DataFetcherJson registry
+    ingestion/source_registry.rs
+    import/import_registry.rs
+    bulk_loader_registry.rs
+    sync_aggregator_registry.rs
+    writter.rs
+  core/
+    traits/                   # shared contracts
+    types.rs                  # shared payload/result types
+  domain/
+    logging/                  # logging entity and repo contract
+  infrastructure/
+    datasets/
+      export/
+      import/
+      sync/
+    ingestion/                # OLTP/master/HRIS/organization fetch sources
+    source/warehouse/temporary
+    loader/
+      warehouse/              # warehouse temporary loaders and logging repo
+      oltp/ats/bulk_sync      # ATS OLTP sync bulk loaders
+    redis.rs
+migrations/
+```
 
-- `src/bin/worker.rs`
-  Menjalankan worker Redis Stream. Membuat consumer group dan men-spawn:
-  - 3 worker `EXPORT`
-  - 3 worker `IMPORT`
-- `src/bin/http.rs`
-  Menjalankan API HTTP berbasis Axum.
-- `src/main.rs`
-  Ada bootstrap dasar, tapi bukan jalur utama yang dipakai oleh Dockerfile.
+## Bootstrap
 
-### 2. Bootstrap dan AppState
+`src/boostrap.rs` membangun semua dependency utama:
 
-File inti:
+- database pool dan client: warehouse, ATS, master, HRIS, organization
+- Redis connection manager
+- `RedisPublisher`
+- `GrpcService`
+- registries: orchestrator, dataset, importer dataset, sync dataset, fetcher, source, loader, bulk loader, writer, sync aggregator
+- `LoggingWarehouse`
+- HTTP usecases
 
-- `src/boostrap.rs`
-- `src/app_state.rs`
+`src/bin/worker.rs` membuat stream group:
 
-Tanggung jawab:
+- `stream:ingestion` dengan group `ingestion-group`
+- `stream:export` dengan group `export-group`
+- `stream:import` dengan group `import-group`
+- `stream:sync` dengan group `sync-group`
 
-- baca env config
-- buka koneksi Redis
-- buka pool PostgreSQL
-- bangun gRPC client
-- register dataset, writer, loader, fetcher, orchestrator
-- simpan dependency ke `AppState`
+Worker yang di-spawn per instance loop:
 
-`AppState` memegang:
+- 3 `ExportHandler`
+- 3 `ImportHandler`
+- 3 `SyncHandler`
 
-- `orchestrator_registry`
-- `grpc_service`
-- `publisher`
-- `manager` Redis
-- `usecases`
+## Redis Payload Contract
 
-### 3. Application Layer
+Consumer hanya membaca field Redis bernama `payload`.
 
-Folder utama: `src/application`
+Benar:
 
-Komponen penting:
+```bash
+redis-cli -u "$REDIS_URL" XADD stream:sync '*' payload '{"tenant_id":"..."}'
+```
 
-- `handler/`
-  Loop consume Redis, deserialize payload, panggil orchestrator, lalu `ACK`.
-- `orchestrator/`
-  Koordinator flow `IMPORT` dan `EXPORT`.
-- `dataset.rs`
-  Registry dataset export dan import.
-- `loader_registry.rs`
-  Registry loader incremental warehouse.
-- `import/import_registry.rs`
-  Registry loader untuk proses import ke tabel temporary.
-- `writter.rs`
-  Registry writer `csv` dan `excel`.
-- `fetch_source_regitry.rs`
-  Registry fetcher referensi/master data.
-- `usecases/`
-  Use case HTTP seperti list log dan generate template.
+Salah:
 
-### 4. Core Layer
+```bash
+redis-cli -u "$REDIS_URL" XADD stream:sync '*' data '{"tenant_id":"..."}'
+```
 
-Folder utama: `src/core`
+Struktur JSON utama mengikuti `OrchestratorJob`:
 
-Kontrak penting:
+```json
+{
+  "tenant_id": "uuid-or-string",
+  "email": "user@example.com",
+  "actor_id": "actor-id",
+  "orchestrator_name": "IMPORT | EXPORT | SYNC",
+  "export_config": null,
+  "ingestion_config": null,
+  "import_config": null,
+  "sync_config": null,
+  "filters": []
+}
+```
 
-- `Consumer`
-  Kontrak consume dan ack message Redis.
-- `Orchestrator`
-  Kontrak `run(job, msg_id)`.
-- `Dataset`
-  Kontrak export batch.
-- `ImporterDatasetV1`
-  Kontrak mapping row Excel menjadi struktur tabel import.
-- `ImportLoadPersitence`
-  Kontrak simpan batch hasil import.
-- `WritterTrait`
-  Kontrak writer file export.
+Catatan penting:
 
-Layer ini jadi fondasi supaya source, dataset, loader, dan writer bisa diganti lewat registry.
+- Handler memilih orchestrator dari stream, bukan dari `orchestrator_name`.
+- `stream:import` selalu memanggil key registry `IMPORT`.
+- `stream:export` selalu memanggil key registry `EXPORT`.
+- `stream:sync` selalu memanggil key registry `SYNC`.
+- `orchestrator_name` tetap dikirim untuk audit/debug payload.
+- Jika payload invalid, handler tetap melakukan `ACK` setelah mencatat error.
 
-### 5. Infrastructure Layer
+### Payload Field Reference
 
-Folder utama: `src/infrastructure`
+Root `OrchestratorJob`:
 
-Komponen nyata yang aktif:
+| Field | Tipe | Dipakai oleh | Fungsi |
+| --- | --- | --- | --- |
+| `tenant_id` | string | semua flow | Tenant pemilik job. |
+| `email` | string | export/import/sync logging | Email actor/requester. |
+| `actor_id` | string | export/import/sync logging | User atau actor yang menjalankan job. |
+| `orchestrator_name` | string | audit/debug | Nama flow di payload. Routing tetap berdasarkan stream handler. |
+| `export_config` | object/null | `stream:export` | Config export dataset dan format file. |
+| `import_config` | object/null | `stream:import` | Config import file, dataset, loader, field mapping. |
+| `sync_config` | object/null | `stream:sync` dan auto-sync import | Config sync aggregate, logging id, dan chunk. |
+| `ingestion_config` | object/null | ingestion lama | Saat ini belum aktif di worker runtime. |
+| `filters` | array/null | export/source | Filter query berbasis `WhereField`. |
 
-- `redis.rs`
-  Implementasi consumer dan publisher Redis Stream.
-- `exporter/csv_exporter.rs`
-  Writer CSV berbasis `csv::Writer`.
-- `exporter/excel_exporter.rs`
-  Writer XLSX berbasis `excelstream`.
-- `loader/warehouse/logging_warehouse.rs`
-  Penyimpanan status job ke tabel `loggings`.
-- `loader/warehouse/temporary/...`
-  Loader import ke tabel temporary warehouse.
-- `datasets/export/ats/lsi_candidate_dataset.rs`
-  Dataset export kandidat ATS.
-- `datasets/import/...`
-  Mapping row Excel ke struktur import.
-- `ingestion/...`
-  Source/fetcher dari ATS, master, HRIS, dan organization.
+`export_config`:
 
-### 6. Domain Layer
+| Field | Fungsi |
+| --- | --- |
+| `dataset` | Key di `DatasetRegistry`, contoh `lsi_ats_candidate_dataset`. |
+| `format` | Key di `WritterRegistry`, contoh `csv` atau `excel`. |
+| `fields` | Kolom output export, berisi `name` dan `column`. |
+| `template_code` | Template email/export yang dikirim ke facilitator. |
+| `structure_template_code` | Template struktur email/export. |
+| `redirected_url` | URL redirect download, biasanya memakai placeholder `{{url}}`. |
+| `chunk` | Ukuran batch fetch dataset. |
 
-Folder utama: `src/domain`
+`import_config`:
 
-Yang paling nyata dipakai saat ini:
+| Field | Fungsi |
+| --- | --- |
+| `dataset` | Key di `ImporterDatasetV1`, contoh `LSI_IMPORT_VACANCY_V1`. |
+| `loader` | Key di `ImportLoaderRegistry`, contoh `WAREHOUSE_DYNAMIC_TEMPORARY_LOADER`. |
+| `key` | Object key file import di storage/facilitator. |
+| `tenant_id` dan `group_id` | Nilai tenant/group yang ikut dimapping ke dataset import. |
+| `auto_sync` | Jika `true`, import publish payload baru ke `stream:sync`. |
+| `pipeline` | Key pipeline import, contoh `vacancy_import_pipeline`. |
+| `master_table` | Nama table utama di result import, contoh `vacancy`. |
+| `primary_column` | Kolom primary master table, contoh `id`. |
+| `chunk` | Ukuran batch row Excel. |
+| `fields` | Mapping header Excel ke kolom table result. |
+| `sequential_table` | Daftar child table yang punya FK ke master. |
+| `main_filterable` | Mapping value custom ke `filterable_attribute`. |
+| `main_searchable` | Daftar field yang masuk keywords/searchable. |
+| `fetcher_caching` | Daftar fetcher yang di-prefetch/cache sebelum import. |
 
-- `domain/logging`
-  Entity dan contract repo untuk status job.
+`import_config.fields[]`:
 
-## Alur Runtime Aktual
+| Field | Fungsi |
+| --- | --- |
+| `header` | Nama header Excel yang dibaca. |
+| `column` | Target column. Bisa format `table.column` atau multi target dengan `|`, contoh `vacancy.job_position_id|vacancy.job_position_meta`. |
+| `fetcher` | Key fetcher reference. Jika `null`, value dipakai langsung. |
+| `type_data` | Tipe parsing import: `TEXT`, `UUID`, `DATE`, `NUMBER`, atau `Boolean`. |
+| `is_custom` | Jika `true`, field masuk custom field, bukan kolom utama. |
 
-### Flow Export
+`sync_config`:
+
+| Field | Fungsi |
+| --- | --- |
+| `sync_aggregate` | Key di `SyncAggregatorRegistry`, contoh `LSI_VACANCY_SYNC`. |
+| `logging_id` | Logging/import id yang dipakai filter data temporary. Wajib untuk sync vacancy. |
+| `chunk` | Ukuran batch master rows yang diproses sync runner. |
+
+## Payload Import
+
+Import menggunakan `import_config`. Untuk vacancy LSI, dataset yang dipakai adalah `LSI_IMPORT_VACANCY_V1`.
+
+Contoh payload import vacancy:
+
+```json
+{
+  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+  "email": "verrandyb@gmail.com",
+  "actor_id": "vearara",
+  "orchestrator_name": "IMPORT",
+  "export_config": null,
+  "ingestion_config": null,
+  "sync_config": {
+    "sync_aggregate": "LSI_VACANCY_SYNC",
+    "logging_id": null,
+    "chunk": 100
+  },
+  "import_config": {
+    "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+    "group_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+    "dataset": "LSI_IMPORT_VACANCY_V1",
+    "auto_sync": true,
+    "key": "v6/HRMS/import/template_excel_vacancy.xlsx",
+    "data_source_type": "stream",
+    "pipeline": "vacancy_import_pipeline",
+    "loader": "WAREHOUSE_DYNAMIC_TEMPORARY_LOADER",
+    "master_table": "vacancy",
+    "primary_column": "id",
+    "chunk": 500,
+    "main_filterable": [
+      {
+        "main_column": "filterable_attribute",
+        "import_column": "noRR"
+      }
+    ],
+    "main_searchable": ["noRR"],
+    "sequential_table": [
+      {
+        "table": "vacancy_pics",
+        "is_custom": false,
+        "fk_column": "vacancy_id"
+      },
+      {
+        "table": "vacancy_stage",
+        "is_custom": false,
+        "fk_column": "vacancy_id"
+      },
+      {
+        "table": "vacancy_requirement",
+        "is_custom": false,
+        "fk_column": "vacancy_id"
+      }
+    ],
+    "fetcher_caching": [
+      "JOB_POSITION",
+      "ORGANIZATION",
+      "EMPLOYEE",
+      "MASTER_GEO"
+    ],
+    "fields": [
+      {
+        "header": "noRR",
+        "column": "vacancy.noRR",
+        "fetcher": null,
+        "type_data": "TEXT",
+        "is_custom": true
+      },
+      {
+        "header": "position_name",
+        "column": "vacancy.job_position_id|vacancy.job_position_meta",
+        "fetcher": "JOB_POSITION",
+        "type_data": "UUID",
+        "is_custom": false
+      },
+      {
+        "header": "pic",
+        "column": "vacancy_pics.employee_id|vacancy_pics.employee_meta",
+        "fetcher": "EMPLOYEE",
+        "type_data": "UUID",
+        "is_custom": false
+      }
+    ]
+  },
+  "filters": []
+}
+```
+
+Import vacancy menulis ke warehouse temporary:
+
+- `warehouse.ats_vacancy_temporary`
+- `warehouse.ats_vacancy_custom_field`
+- `warehouse.ats_vacancy_pic`
+- `warehouse.ats_vacancy_stage`
+- `warehouse.ats_vacancy_requirement`
+
+Semua table temporary vacancy membawa `logging_id`. Pada `auto_sync=true`, `ImportOrchestrator` membuat payload baru ke `stream:sync` dan mengisi `sync_config.logging_id` dengan logging id import yang baru dibuat.
+
+## Payload Sync
+
+Sync menggunakan `sync_config`. Sync vacancy yang aktif memakai aggregate `LSI_VACANCY_SYNC`.
+
+Contoh payload sync manual:
+
+```json
+{
+  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+  "email": "verrandyb@gmail.com",
+  "actor_id": "vearara",
+  "orchestrator_name": "SYNC",
+  "export_config": null,
+  "ingestion_config": null,
+  "import_config": null,
+  "sync_config": {
+    "sync_aggregate": "LSI_VACANCY_SYNC",
+    "logging_id": "019f3d19-8948-71f3-92ac-067ebb6a05e8",
+    "chunk": 100
+  },
+  "filters": []
+}
+```
+
+Publish manual:
+
+```bash
+redis-cli -u "$REDIS_URL" XADD stream:sync '*' payload "$(cat sync-job.json)"
+```
+
+Flow sync vacancy:
+
+1. `SyncHandler` membaca `stream:sync`.
+2. `SyncOrchestrator` validasi `sync_config`.
+3. Status logging diubah ke `SYNC_PROGRESS`.
+4. `SyncAggregatorRegistry` resolve `LSI_VACANCY_SYNC`.
+5. `AtsVacancyAtsSyncAggregator` mengambil source `warehouse_ats_vacancy_temporary`.
+6. Source difilter `logging_id`.
+7. `SyncRunner` mengambil master rows per `chunk`.
+8. `LSI_VACANCY_SYNC_DATASET` merajut master vacancy dengan child table berdasarkan `vacancy_id` atau `parent_id` dan `logging_id`.
+9. `BulkLoaderRegistry` menjalankan loader OLTP secara transaksi.
+10. Status logging diubah ke `SYNC_SUCCESS` atau `SYNC_FAILED`.
+
+Target OLTP sync vacancy:
+
+- `vacancy.vacancy`
+- `vacancy.vacancy_custom_field`
+- `vacancy.vacancy_pic`
+- `vacancy.vacancy_stage`
+- `vacancy.vacancy_requirement`
+
+Catatan `logging_id` sync:
+
+- `logging_id` selalu masuk ke result dataset dan ikut dibaca bulk loader.
+- Dataset scan semua row untuk resolve columns, lalu memastikan `logging_id` ada di columns.
+- Fetcher child temporary difilter dengan `logging_id` agar batch import tidak bercampur.
+- `WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD.logging_id` bertipe UUID, sehingga filter casting-nya `uuid`.
+- Child temporary lain memakai `varchar`, sehingga filter casting-nya `varchar`.
+
+## Payload Export
+
+Export menggunakan `export_config`.
+
+Contoh payload export:
+
+```json
+{
+  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+  "email": "user@example.com",
+  "actor_id": "actor-1",
+  "orchestrator_name": "EXPORT",
+  "export_config": {
+    "dataset": "lsi_ats_candidate_dataset",
+    "format": "excel",
+    "template_code": "LSI_EMAIL_EXPORT",
+    "structure_template_code": "LSI_EXPORT_STRUCTURE",
+    "redirected_url": "https://example.com/download?url={{url}}",
+    "chunk": 1000,
+    "fields": [
+      {
+        "name": "Candidate ID",
+        "column": "candidate_id"
+      },
+      {
+        "name": "Name",
+        "column": "name"
+      },
+      {
+        "name": "Email",
+        "column": "email_address"
+      }
+    ]
+  },
+  "ingestion_config": null,
+  "import_config": null,
+  "sync_config": null,
+  "filters": [
+    {
+      "field": "tenant_id",
+      "operator": "=",
+      "value": null,
+      "values": ["019e95a5-f5f3-7dd8-952b-0ce16845d9bd"],
+      "casting": "Uuid"
+    }
+  ]
+}
+```
+
+Publish manual:
+
+```bash
+redis-cli -u "$REDIS_URL" XADD stream:export '*' payload "$(cat export-job.json)"
+```
+
+Output export:
+
+1. Worker membuat file lokal di `exports/`.
+2. File di-upload ke facilitator gRPC.
+3. `download_url` disimpan di table `loggings`.
+4. Event email dipublish ke `stream:email`.
+
+## Registry Inventory
+
+### Orchestrator Registry
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `IMPORT` | `ImportOrchestrator` | Import Excel/file ke temporary warehouse. Bisa publish auto sync ke `stream:sync`. |
+| `EXPORT` | `ExportOrchestrator` | Export dataset ke CSV/XLSX, upload file, publish email event. |
+| `SYNC` | `SyncOrchestrator` | Jalankan sync aggregator berdasarkan `sync_config.sync_aggregate`. |
+
+### Writer Registry
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `csv` | `CsvExporter` | Menulis file CSV. |
+| `excel` | `ExcelExporter` | Menulis file XLSX. |
+
+### Export Dataset Registry
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `lsi_ats_candidate_dataset` | `LsiCandidateDataset` | Dataset export kandidat ATS. Menggunakan ATS DB, fetcher registry, source registry, dan gRPC service. |
+
+### Importer Dataset Registry
+
+Legacy `ImporterDataset`:
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `dynamic_dataset` | `DynamicDataset` | Dataset import dynamic versi lama. |
+| `ats_import_lsi_vacancy_dataset` | `AtsImportLsiVacancyDataset` | Dataset import vacancy versi lama. |
+
+`ImporterDatasetV1` yang dipakai import modern:
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `DYNAMIC_DATASET_V1` | `DynamicDatasetV1` | Mapping import generic berdasarkan config fields/sequential/custom fields. |
+| `LSI_IMPORT_VACANCY_V1` | `LsiImportVacancyV1` | Mapping import vacancy LSI ke vacancy temporary, custom field, PIC, stage, requirement. |
+
+### Sync Dataset Registry
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `LSI_VACANCY_SYNC_DATASET` | `LsiVacancySyncDataset` | Merajut master vacancy temporary dengan child temporary tables untuk bulk load ke OLTP ATS. |
+
+### Sync Aggregator Registry
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `LSI_VACANCY_SYNC` | `AtsVacancyAtsSyncAggregator` | Sync vacancy dari warehouse temporary ke ATS OLTP. Mengikat source, sync dataset, bulk loaders, ATS client, dan logging repo. |
+
+### Source Registry
+
+`SourceRegistry` berisi source incremental atau source cursor-based. Biasanya dipakai export, ingestion lama, dan sync master source.
+
+| Key | Struct | DB | Fungsi |
+| --- | --- | --- | --- |
+| `oltp_tenants` | `TenantSource` | organization | Source tenant organization. |
+| `oltp_ats_candidate` | `AtsCandidateSource` | ats | Source candidate ATS. |
+| `oltp_ats_vacancy` | `AtsVacancySource` | ats | Source vacancy ATS. |
+| `oltp_ats_candidate_client_field` | `AtsCandidateClientFieldSource` | ats | Source candidate custom/client field. |
+| `oltp_ats_applicant_bucket` | `AtsApplicantBucketSource` | ats | Source applicant bucket. |
+| `oltp_ats_experience_source` | `AtsExperinceSource` | ats | Source candidate experience. |
+| `oltp_ats_education_source` | `AtsEducationSource` | ats | Source candidate education. |
+| `warehouse_ats_vacancy_temporary` | `AtsVacancyTemporarySource` | warehouse | Master source sync vacancy temporary. |
+| `warehouse_ats_vacancy_custom_field_temporary` | `AtsVacancyCustomFieldTemporarySource` | warehouse | Source custom field vacancy temporary. |
+| `warehouse_ats_vacancy_pic_temporary` | `AtsVacancyPicTemporarySource` | warehouse | Source PIC vacancy temporary. |
+| `warehouse_ats_vacancy_stage_temporary` | `AtsVacancyStageTemporarySource` | warehouse | Source stage vacancy temporary. |
+| `warehouse_ats_vacancy_requirement_temporary` | `AtsVacancyRequirementTemporarySource` | warehouse | Source requirement vacancy temporary. |
+
+### Data Fetcher JSON Registry
+
+`DataFetcherJsonRegistry` dipakai untuk lookup reference data pada import/export, dan untuk mengambil child warehouse table pada sync dataset.
+
+| Key | Struct | DB | Fungsi |
+| --- | --- | --- | --- |
+| `ats_candidate_custom_field_fetcher` | `AtsCandidateClientFieldSource` | ats | Fetch candidate custom/client fields. |
+| `ats_candidate_fetcher` | `AtsCandidateSource` | ats | Fetch candidate ATS. |
+| `ats_candidate_field_fetcher` | `AtsCandidateClientFieldSource` | ats | Alias fetch candidate field. |
+| `ats_education_fetcher` | `AtsEducationSource` | ats | Fetch education ATS. |
+| `ats_experience_fetcher` | `AtsExperinceSource` | ats | Fetch experience ATS. |
+| `ats_vacancy_fetcher` | `AtsVacancySource` | ats | Fetch vacancy ATS. |
+| `MASTER_GEO` | `MasterGeoSource` | master | Lookup province/city/geo. |
+| `MASTER_ITEMS` | `MasterMasterItemsSource` | master | Lookup master items. |
+| `WAREHOUSE_ATS_VACANCY_TEMPORARY` | `AtsVacancyTemporarySource` | warehouse | Fetch vacancy temporary. |
+| `WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD` | `AtsVacancyCustomFieldTemporarySource` | warehouse | Fetch vacancy custom field temporary. |
+| `WAREHOUSE_ATS_VACANCY_PIC` | `AtsVacancyPicTemporarySource` | warehouse | Fetch vacancy PIC temporary. |
+| `WAREHOUSE_ATS_VACANCY_STAGE` | `AtsVacancyStageTemporarySource` | warehouse | Fetch vacancy stage temporary. |
+| `WAREHOUSE_ATS_VACANCY_REQUIREMENT` | `AtsVacancyRequirementTemporarySource` | warehouse | Fetch vacancy requirement temporary. |
+| `STAGE_TEMPLATE` | `IngestionRequirementStageTemplateSource` | ats | Lookup stage template. |
+| `REQUIREMENT_STAGE_TEMPLATE` | `IngestionRequirementStageTemplateSource` | ats | Alias stage template. |
+| `STAGE_TEMPLATE_DETAIL` | `IngestionRequirementStageTemplateDetailSource` | ats | Lookup stage template detail. |
+| `REQUIREMENT_STAGE_TEMPLATE_DETAIL` | `IngestionRequirementStageTemplateDetailSource` | ats | Alias stage template detail. |
+| `FORM_TEMPLATE` | `IngestionFormTemplateSource` | ats | Lookup form template. |
+| `REQUIREMENT_TEMPLATE` | `IngestionFormTemplateSource` | ats | Alias requirement template. |
+| `FORM_FIELD` | `IngestionFormFieldSource` | ats | Lookup form fields. |
+| `FORM_TEMPLATE_DETAIL` | `IngestionFormTemplateDetailSource` | ats | Lookup form template detail. |
+| `ATTEDANCE_LOCATION` | `IngestionHrisAttedanceLocationsSource` | hris | Lookup attendance location. |
+| `EMPLOYEE` | `IngestionEmployeeSource` | hris | Lookup employee. |
+| `EMPLOYMENT_STATUS` | `IngestionEmployeeStatusesSource` | hris | Lookup employment status. |
+| `JOB_POSITION` | `IngestionOrganizationJobPositionSource` | organization | Lookup job position. |
+| `ORGANIZATION` | `IngestionOrganizationUnitSource` | organization | Lookup organization unit. |
+| `JOB_GRADE` | `IngestionJobGradeSource` | organization | Lookup job grade. |
+| `JOB_LEVEL` | `IngestionJobLevelSource` | organization | Lookup job level. |
+
+### Import Loader Registry
+
+| Key | Struct | Target |
+| --- | --- | --- |
+| `WAREHOUSE_ATS_VACANCY_TEMPORARY` | `WarehouseAtsVacancyTemporaryLoader` | Warehouse ATS vacancy temporary. |
+| `WAREHOUSE_DYNAMIC_TEMPORARY_LOADER` | `WarehouseDynamicTemporaryLoader` | Generic warehouse temporary loader. |
+
+### Bulk Loader Registry
+
+Bulk loaders dipakai oleh sync runner untuk insert/upsert ke ATS OLTP dalam satu transaksi.
+
+| Key | Struct | Target table | Catatan |
+| --- | --- | --- | --- |
+| `ATS_VACANCY` | `AtsVacancyBulkLoader` | `vacancy.vacancy` | Cast `status` enum, map `current_hired` ke `currentHired`, conflict `id`. |
+| `ATS_VACANCY_CUSTOM_FIELD` | `AtsVacancyCustomFieldBulkLoader` | `vacancy.vacancy_custom_field` | Cast `field_type` enum, conflict `id`. |
+| `ATS_VACANCY_PIC` | `AtsVacancyPicBulkLoader` | `vacancy.vacancy_pic` | Tidak insert `id`; conflict `vacancy_id, employee_id`. |
+| `ATS_VACANCY_STAGE` | `AtsVacancyStageBulkLoader` | `vacancy.vacancy_stage` | Cast `stage_email_template_reject` UUID, conflict `id`. |
+| `ATS_VACANCY_REQUIREMENT` | `AtsVacancyRequirementBulkLoader` | `vacancy.vacancy_requirement` | Cast `field_type`, `field_purpose`, `compare_operator` enum, conflict `id`. |
+
+### Incremental Loader Registry
+
+| Key | Struct | Fungsi |
+| --- | --- | --- |
+| `tenants` | `TenantWarehouseSnapshot` | Loader snapshot tenant ke warehouse. |
+
+### Pipeline Registry
+
+| Registry | Key | Struct | Status |
+| --- | --- | --- | --- |
+| `PipelineImportRegistry` | `vacancy_import_pipeline` | `VacancyImportPipeline` | Terdaftar. |
+| `PipelineRegistry` | none | none | Kosong, flow ingestion/export pipeline lama belum aktif. |
+
+## Core Traits
+
+| Trait | File | Fungsi |
+| --- | --- | --- |
+| `Orchestrator` | `core/traits/orchestrator.rs` | Kontrak `run(job, msg_id)` untuk IMPORT/EXPORT/SYNC. |
+| `Dataset` | `core/traits/dataset_trait.rs` | Dataset export batch. |
+| `ImporterDatasetV1` | `core/traits/dataset_trait.rs` | Mapping row import ke table result. |
+| `SyncDataset` | `core/traits/dataset_trait.rs` | Mapping master rows sync menjadi `SycnTableResult`. |
+| `DataFetcherJson` | `core/traits/etl.rs` | Fetch rows sebagai `serde_json::Value`. |
+| `SourceIncrementalExtract` | `core/traits/extractor/source_incremental_extract.rs` | Source cursor/incremental. |
+| `ImportLoadPersitence` | `core/traits/load.rs` | Loader import ke warehouse temporary. |
+| `BulkLoaderTrait` | `core/traits/load.rs` | Bulk loader sync ke OLTP. |
+| `SyncAggregator` | `core/traits/load.rs` | Agregator sync satu domain. |
+| `WritterTrait` | `core/traits/writter/writter_trait.rs` | Writer CSV/XLSX export. |
+| `Consumer` | `core/traits/consumer.rs` | Redis consumer contract. |
+| `Publisher` | `core/traits/publisher.rs` | Redis publisher contract. |
+
+## LSI Vacancy End-to-End
+
+### Import to Warehouse
 
 ```mermaid
 sequenceDiagram
-    participant R as Redis stream:export
-    participant H as ExportHandler
-    participant O as ExportOrchestrator
-    participant D as Dataset
-    participant W as Writer
-    participant G as Facilitator gRPC
-    participant E as Redis stream:email
-
-    R->>H: payload
-    H->>O: run(job, msg_id)
-    O->>O: simpan log PROCESSING
-    O->>W: init file exports/<msg_id>.csv|xlsx
-    O->>D: fetch_batch per chunk
-    D-->>O: rows + next_cursor
-    O->>W: write_headers/write_rows
-    O->>O: update cursor + processed_count
-    O->>W: finish
-    O->>G: upload_file
-    G-->>O: key file
-    O->>O: update download_url + mark completed
-    O->>E: publish payload email
-    H->>R: ACK
-```
-
-Catatan:
-
-- Format writer yang terdaftar: `csv`, `excel`.
-- File sementara export disimpan di folder `exports/`.
-- Dataset export yang terdaftar saat ini: `lsi_ats_candidate_dataset`.
-
-### Flow Import
-
-```mermaid
-sequenceDiagram
-    participant R as Redis stream:import
+    participant R as stream:import
     participant H as ImportHandler
     participant O as ImportOrchestrator
-    participant S as Facilitator gRPC
-    participant X as Excel Reader
-    participant D as ImporterDatasetV1
-    participant L as Import Loader
-    participant DB as Warehouse Temporary Table
+    participant G as Facilitator gRPC
+    participant D as LSI_IMPORT_VACANCY_V1
+    participant L as WAREHOUSE_DYNAMIC_TEMPORARY_LOADER
+    participant W as Warehouse temporary
+    participant S as stream:sync
 
-    R->>H: payload
-    H->>O: run(job, msg_id)
-    O->>O: simpan log PROCESSING
-    O->>S: get_download_url(key)
-    S-->>O: signed URL
-    O->>X: baca Excel per chunk
-    O->>O: prefetch data referensi ke cache
-    O->>D: mapping row ke batch tabel
-    O->>L: load(batch, logging_id, config)
-    L->>DB: insert/upsert temporary data
-    O->>O: update status COMPLETED/FAILED
+    R->>H: payload import
+    H->>O: run
+    O->>G: get_download_url
+    O->>D: parse and format rows
+    O->>L: load batch
+    L->>W: upsert vacancy temporary tables
+    O->>S: publish sync payload if auto_sync=true
     H->>R: ACK
 ```
 
-Catatan:
+### Warehouse to ATS OLTP
 
-- Dataset import V1 yang terdaftar:
-  - `DYNAMIC_DATASET_V1`
-  - `LSI_IMPORT_VACANCY_V1`
-- Loader import yang terdaftar:
-  - `warehouse_ats_vacancy_temporary`
-  - `WAREHOUSE_DYNAMIC_TEMPORARY_LOADER`
-- Pipeline import yang terdaftar:
-  - `vacancy_import_pipeline`
+```mermaid
+sequenceDiagram
+    participant R as stream:sync
+    participant H as SyncHandler
+    participant O as SyncOrchestrator
+    participant A as LSI_VACANCY_SYNC
+    participant S as warehouse_ats_vacancy_temporary
+    participant D as LSI_VACANCY_SYNC_DATASET
+    participant F as Warehouse child fetchers
+    participant B as Bulk loaders
+    participant DB as ATS OLTP
 
-### Flow Ingestion
+    R->>H: payload sync
+    H->>O: run
+    O->>A: run aggregate
+    A->>S: get min id and extract master by logging_id
+    A->>D: format_from_master
+    D->>F: fetch child rows by vacancy_id/parent_id and logging_id
+    A->>B: load each table in transaction
+    B->>DB: insert/update OLTP vacancy tables
+    H->>R: ACK
+```
 
-Secara desain, repo masih punya jejak flow ingestion:
+## Logging Status
 
-- ada `IngestionHandler`
-- ada `stream:ingestion`
-- ada `SourceRegistry`
-- ada `LoaderRunner`
+Logging disimpan lewat `LoggingWarehouse` ke table `loggings`.
 
-Namun pada runtime worker saat ini:
+Status umum:
 
-- consumer `ingestion` tidak di-spawn
-- orchestrator `INGESTION` tidak diregister
-- `PipelineRegistry` masih kosong
+- `PROCESSING`
+- `COMPLETED`
+- `FAILED`
+- `SYNC_PROGRESS`
+- `SYNC_SUCCESS`
+- `SYNC_FAILED`
 
-Jadi `ingestion` sekarang lebih tepat disebut desain parsial, belum flow aktif end-to-end.
+Field penting:
 
-## Registry yang Aktif
+- `id`
+- `stream_id`
+- `logging_type`
+- `status`
+- `processed_count`
+- `cursor`
+- `download_url`
+- `error`
+- `tenant_id`
+- `email`
+- `actor_id`
 
-### Orchestrator
+## Environment Variables
 
-- `IMPORT`
-- `EXPORT`
-
-### Writer
-
-- `csv`
-- `excel`
-
-### Export Dataset
-
-- `lsi_ats_candidate_dataset`
-
-### Import Dataset V1
-
-- `DYNAMIC_DATASET_V1`
-- `LSI_IMPORT_VACANCY_V1`
-
-### Import Loader
-
-- `warehouse_ats_vacancy_temporary`
-- `WAREHOUSE_DYNAMIC_TEMPORARY_LOADER`
-
-### Fetcher Referensi
-
-Contoh yang aktif:
-
-- `MASTER_GEO`
-- `MASTER_ITEMS`
-- `EMPLOYEE`
-- `EMPLOYMENT_STATUS`
-- `JOB_POSITION`
-- `JOB_GRADE`
-- `JOB_LEVEL`
-- `ORGANIZATION`
-- `ATTEDANCE_LOCATION`
-- beberapa fetcher ATS candidate/vacancy/education/experience
-
-## Dependensi Eksternal
-
-Service ini butuh:
-
-- Redis
-- PostgreSQL warehouse
-- PostgreSQL organization
-- PostgreSQL ATS
-- PostgreSQL master
-- PostgreSQL HRIS
-- Facilitator gRPC
-- ATS decryptor gRPC
-
-## Environment Variable
-
-Variable yang wajib untuk bootstrap:
+Wajib untuk runtime normal:
 
 - `WAREHOUSE_DATABASE_URL`
 - `ORGANIZATION_DATABASE_URL`
@@ -323,306 +681,79 @@ Variable yang wajib untuk bootstrap:
 - `FACILITATOR_GRPC_URL`
 - `ATS_GRPC_URL`
 
-Variable opsional:
+Opsional:
 
-- `HOST` default `0.0.0.0`
-- `PORT` default `8080`
+- `HOST`
+- `PORT`
 
-## Struktur Folder Penting
+## Running Locally
 
-```text
-src/
-  application/
-    handler/
-    orchestrator/
-    presentation/http/
-    usecases/
-  core/
-    config/
-    traits/
-  domain/
-    logging/
-  infrastructure/
-    datasets/
-    exporter/
-    ingestion/
-    loader/
-    redis.rs
-  bin/
-    worker.rs
-    http.rs
-migrations/
-Dockerfile
-docker-compose.yml
-Makefile.toml
-```
-
-## Cara Menjalankan
-
-### Opsi 1: Local dengan Cargo
-
-1. Siapkan env file atau export semua variable wajib.
-2. Jalankan migration warehouse jika perlu.
-3. Jalankan HTTP API.
-4. Jalankan worker.
-
-Contoh:
+HTTP:
 
 ```bash
-cargo make migrate-main
 cargo run --bin http
 ```
 
-Terminal lain:
+Worker:
 
 ```bash
 cargo run --bin worker
 ```
 
-### Opsi 2: Docker Compose
-
-`docker-compose.yml` menyiapkan:
-
-- `redis-dev`
-- `worker-exporter-http`
-- `worker-exporter-consumer`
-
-Jalankan:
+Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-Catatan:
-
-- service HTTP expose port `9090:8089`
-- nilai port final tetap ikut `PORT` dari `.env.production`
-
-## Cara Menggunakan
-
-### 1. Publish Job Import via HTTP
-
-Endpoint:
-
-- `POST /test-import`
-
-Contoh payload import:
-
-```json
-{
-  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
-  "email": "user@example.com",
-  "actor_id": "actor-1",
-  "orchestrator_name": "import",
-  "export_config": null,
-  "ingestion_config": null,
-  "import_config": {
-    "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
-    "group_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
-    "dataset": "LSI_IMPORT_VACANCY_V1",
-    "key": "v6/HRMS/.../template_excel.xlsx",
-    "data_source_type": "stream",
-    "pipeline": "vacancy_import_pipeline",
-    "loader": "WAREHOUSE_DYNAMIC_TEMPORARY_LOADER",
-    "master_table": "vacancy",
-    "primary_column": "id",
-    "chunk": 500,
-    "sequential_table": [
-      {
-        "table": "vacancy_pics",
-        "is_custom": false,
-        "fk_column": "vacancy_id"
-      }
-    ],
-    "fetcher_caching": [],
-    "fields": [
-      {
-        "header": "position_name",
-        "column": "vacancy.job_position_id|vacancy.job_position_meta",
-        "fetcher": "JOB_POSITION",
-        "type_data": "UUID",
-        "is_custom": false
-      }
-    ]
-  },
-  "filters": []
-}
-```
-
-Contoh request:
-
-```bash
-curl -X POST http://127.0.0.1:8080/test-import \
-  -H 'content-type: application/json' \
-  -d @import-job.json
-```
-
-### 2. Publish Job Export via Redis
-
-Saat ini repo punya endpoint HTTP publish import, tapi belum ada endpoint publish export. Jalur export praktis dilakukan langsung ke Redis stream.
-
-Contoh payload export:
-
-```json
-{
-  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
-  "email": "user@example.com",
-  "actor_id": "actor-1",
-  "orchestrator_name": "export",
-  "export_config": {
-    "dataset": "lsi_ats_candidate_dataset",
-    "format": "csv",
-    "template_code": "LSI_EMAIL_EXPORT",
-    "structure_template_code": "LSI_EXPORT_STRUCTURE",
-    "redirected_url": "https://example.com/download?url={{url}}",
-    "chunk": 1000,
-    "fields": [
-      { "name": "Candidate ID", "column": "candidate_id" },
-      { "name": "Name", "column": "name" },
-      { "name": "Email", "column": "email_address" }
-    ]
-  },
-  "ingestion_config": null,
-  "import_config": null,
-  "filters": []
-}
-```
-
-Contoh publish:
-
-```bash
-redis-cli -u "$REDIS_URL" XADD stream:export '*' payload "$(cat export-job.json)"
-```
-
-Hasil export:
-
-1. Worker membuat file lokal di `exports/`.
-2. File di-upload ke facilitator gRPC.
-3. `download_url` disimpan ke tabel `loggings`.
-4. Event email dipublish ke `stream:email`.
-
-### 3. Ambil Log Job
-
-Endpoint:
-
-- `POST /loggings`
-
-Payload:
-
-```json
-{
-  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd"
-}
-```
-
-### 4. Ambil File Hasil via Redirect
-
-Endpoint:
-
-- `POST /detail-file`
-
-Payload:
-
-```json
-{
-  "keys": "s3/object/key/from/loggings"
-}
-```
-
-Endpoint ini meminta signed URL ke facilitator, lalu redirect ke URL file.
-
-### 5. Generate Template Import
-
-Endpoint:
-
-- `POST /generated-template`
-
-Payload:
-
-```json
-{
-  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
-  "headers": ["position_name", "province", "city"]
-}
-```
-
-Response:
-
-- file `.xlsx` hasil generate
-
-## Detail Payload Redis
-
-Consumer Redis membaca field bernama `payload` dari setiap entry stream. Artinya format `XADD` harus seperti ini:
-
-```bash
-redis-cli -u "$REDIS_URL" XADD stream:import '*' payload '{"tenant_id":"..."}'
-```
-
-Bukan field lain seperti `data` atau `body`.
-
-## Logging dan Monitoring
-
-Setiap job import/export membuat record di tabel `loggings` dengan informasi:
-
-- `stream_id`
-- `logging_type`
-- `status`
-- `processed_count`
-- `cursor`
-- `download_url`
-- `error`
-- `completed_at`
-
-Status utama:
-
-- `PROCESSING`
-- `COMPLETED`
-- `FAILED`
-
-## Limitasi yang Perlu Diketahui
-
-Beberapa hal penting dari implementasi saat ini:
-
-1. Flow `ingestion` belum aktif penuh walau struktur foldernya ada.
-2. `orchestrator_name` ada di payload, tapi pemilihan orchestrator sebenarnya ditentukan oleh handler/stream, bukan field itu.
-3. `PipelineRegistry` export/ingestion lama belum terisi, jadi sebagian abstraksi masih sisa desain lama.
-4. `process_buffer_mode` pada import masih membaca file lokal `template_excel_vacancy.xlsx`, bukan penuh memakai byte hasil download URL.
-5. Banyak modul dan trait sudah dideklarasikan, tetapi belum semua dipakai di runtime utama.
-6. Repo masih punya banyak warning compile sehingga maintainability belum optimal.
-
 ## Cara Menambah Modul Baru
 
-### Tambah Dataset Export Baru
+### Tambah Export Dataset
 
-1. Implement trait `Dataset`.
+1. Implement `Dataset`.
 2. Register di `build_dataset_registry`.
-3. Kirim `export_config.dataset` sesuai key registry.
+3. Pakai key tersebut di `export_config.dataset`.
 
-### Tambah Format Writer Baru
-
-1. Implement `WritterTrait`.
-2. Register di `build_writter_registry`.
-3. Gunakan key writer di `export_config.format`.
-
-### Tambah Dataset Import Baru
+### Tambah Import Dataset
 
 1. Implement `ImporterDatasetV1`.
 2. Register di `build_importer_dataset_registry_v1`.
-3. Pastikan `import_config.dataset` cocok dengan key registry.
+3. Pakai key tersebut di `import_config.dataset`.
 
-### Tambah Loader Import Baru
+### Tambah Fetcher
 
-1. Implement `ImportLoadPersitence`.
-2. Register di `build_import_loader_registry`.
-3. Set `import_config.loader` ke key loader itu.
+1. Implement `DataFetcherJson`.
+2. Register di `build_data_fetcher_json_registry`.
+3. Pakai key fetcher pada `import_config.fields[].fetcher` atau dataset custom.
 
-## Verdict
+### Tambah Source Incremental
 
-Secara praktik, `worker-exporter` saat ini adalah worker event-driven untuk:
+1. Implement `SourceIncrementalExtract`.
+2. Register di `build_source_registry`.
+3. Pakai key source dari runner/aggregator.
 
-- import Excel ke warehouse temporary
-- export dataset ke CSV/XLSX
-- pencatatan progress job
-- integrasi file dan email via gRPC + Redis
+### Tambah Sync Domain
 
-Arsitekturnya sudah cukup fleksibel untuk dikembangkan, tetapi masih campuran antara flow yang sudah aktif dan flow yang masih rangka desain.
+1. Implement `SyncDataset`.
+2. Register di `build_sync_dataset_registry`.
+3. Implement `SyncAggregator`.
+4. Register di `build_sync_aggregator_registry`.
+5. Buat `BulkLoaderTrait` untuk target tables.
+6. Register loader di `build_bulk_loader_registry`.
+7. Publish payload ke `stream:sync` dengan `sync_config.sync_aggregate`.
+
+### Tambah Bulk Loader
+
+1. Implement `BulkLoaderTrait`.
+2. Jika generic table loader cukup, gunakan `OltpBulkTableLoader`.
+3. Set `source_table`, `target_table`, `column_map`, `column_castings`, dan `conflict_columns`.
+4. Register di `build_bulk_loader_registry`.
+
+## Known Limitations
+
+- Ada typo lama di beberapa nama file/type seperti `writter`, `regitry`, dan `SycnTableResult`; jangan tambah typo baru, tetapi hati-hati saat refactor karena sudah dipakai banyak tempat.
+- `PipelineRegistry` generic masih kosong.
+- `stream:ingestion` group dibuat, tetapi handler ingestion tidak di-spawn di worker saat ini.
+- Banyak warning compile masih ada.
+- Beberapa schema warehouse dan OLTP berbeda tipe, sehingga sync bulk loader perlu `column_castings`.
+- `logging_id` custom field warehouse bertipe UUID, sedangkan beberapa child table lain bertipe varchar.

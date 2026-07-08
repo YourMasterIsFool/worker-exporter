@@ -12,32 +12,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="540bbee8-a143-4b4e-b6f1-96327d4c60b1" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/sqldialects.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/migrations/20260706070000_alter-table-vacancy-temporary.down.sql" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/migrations/20260706070000_alter-table-vacancy-temporary.up.sql" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/bulk_loader_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/bulk_loader_registry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/handler/handler_boostrap.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/handler/handler_boostrap.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/import_orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/import_orchestrator.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/sync_orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/sync_orchestrator.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/runner/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/runner/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/boostrap.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/boostrap.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/dataset_trait.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/dataset_trait.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/extractor/source_incremental_extract.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/extractor/source_incremental_extract.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/load.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/load.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/orchestrator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/orchestrator.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/types.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/logging/entity.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/logging/entity.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ARCHITECTURE.MD" beforeDir="false" afterPath="$PROJECT_DIR$/ARCHITECTURE.MD" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/import/lsi_vacancy_sync_dataset.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/import/lsi_vacancy_sync_dataset.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/vacancy/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/vacancy/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/bulk_sync_loader.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/oltp/ats/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/logging_warehouse.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/loader/warehouse/logging_warehouse.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/redis.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/redis.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_custom_field_temporary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_custom_field_temporary.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_temporary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_temporary.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -114,6 +91,8 @@
       <workItem from="1783396975059" duration="2952000" />
       <workItem from="1783399947070" duration="6443000" />
       <workItem from="1783430839161" duration="11000" />
+      <workItem from="1783446804207" duration="819000" />
+      <workItem from="1783447659997" duration="909000" />
     </task>
     <servers />
   </component>
