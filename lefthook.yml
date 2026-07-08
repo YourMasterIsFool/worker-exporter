@@ -1,0 +1,10 @@
+prepare-commit-msg:
+  commands:
+    prompt-commit-message:
+      interactive: true
+      run: scripts/prepare-commit-msg.sh "{1}" "{2}" "{3}"
+
+commit-msg:
+  commands:
+    validate-commit-message:
+      run: scripts/validate-commit-msg.sh "{1}"
