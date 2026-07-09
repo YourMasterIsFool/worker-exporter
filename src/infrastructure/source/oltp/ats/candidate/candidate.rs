@@ -7,6 +7,7 @@ use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use crate::core::types::{CastingEnum, Identifierable};
+use crate::utils::incremental_cursor_resolver::IncrementalCursorResolver;
 use crate::utils::query_builder::resolve_query_builder_with_where_fields;
 use crate::{
     core::{
@@ -20,9 +21,8 @@ use crate::{
         },
         types::WhereField,
     },
-    infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
+    infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
-use crate::utils::incremental_cursor_resolver::IncrementalCursorResolver;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AtsCandidateIngestionModel {
@@ -102,7 +102,6 @@ pub struct AtsCandidateIngestionModel {
     pub last_education_id: Option<Uuid>,
     pub total_experience_id: Option<Uuid>,
 }
-
 
 impl Identifierable for AtsCandidateIngestionModel {
     fn get_id(&self) -> Uuid {
@@ -219,25 +218,27 @@ impl SourceIncrementalExtract for AtsCandidateSource {
         limit: i64,
         _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
-
         let sql_query = format!("SELECT * FROM {}", self.table().table_name());
 
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
 
-        let mut filters:Option<Vec<WhereField>> =None;
+        let mut filters: Option<Vec<WhereField>> = None;
 
         let mut incremental_resolver = IncrementalCursorResolver::<AtsCandidateIngestionModel>::new(
             qb,
             &self.pool.pool,
             limit,
-            "ATS CANDIDATE SOURC"
+            "ATS CANDIDATE SOURC",
         );
 
         if let LoadEnum::Select(filter, _) = _strategy_enum {
             filters = filter.clone();
         }
 
-        incremental_resolver.with_filters(&filters).with_cursor(cursor).resolve().await
-
+        incremental_resolver
+            .with_filters(&filters)
+            .with_cursor(cursor)
+            .resolve()
+            .await
     }
 }

@@ -14,7 +14,6 @@ pub enum LoadEnum {
     Select(Option<Vec<WhereField>>, Option<Vec<String>>),
 }
 
-
 // checking if LoadEnum is select,
 
 impl LoadEnum {

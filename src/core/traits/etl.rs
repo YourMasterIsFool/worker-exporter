@@ -123,17 +123,17 @@ where
                 // Default ke varchar kalau cast_type tidak diisi.
                 // PASTIKAN cast_type sesuai tipe kolom asli di DB, kalau tidak
                 // index di kolom tersebut tidak akan kepakai (lihat pembahasan sebelumnya).
-                let cast = match field.casting {
-                    Some(casting) => casting.as_str().to_string(),
-                    None => "varchar".to_string(),
-                };
+                let cast = resolve_cast_type(field.casting.as_ref());
 
                 query.push(format!(" AND {} {} ANY(", field.field, field.operator));
                 query.push_bind(clean_values);
                 query.push(format!("::{}[]) ", &cast));
             } else if let Some(value) = field.value {
+                let cast = resolve_cast_type(field.casting.as_ref());
+
                 query.push(format!(" AND {} {} ", field.field, field.operator));
                 query.push_bind(value);
+                query.push(format!("::{} ", &cast));
             }
         }
     }
@@ -148,6 +148,12 @@ where
         .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
     Ok(parse_result)
+}
+
+fn resolve_cast_type(casting: Option<&crate::core::types::CastingEnum>) -> String {
+    casting
+        .map(|casting| casting.as_str().to_string())
+        .unwrap_or_else(|| "varchar".to_string())
 }
 
 /// Whitelist tipe cast yang diperbolehkan.

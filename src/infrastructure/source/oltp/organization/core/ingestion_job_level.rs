@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
-use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder};
+use sqlx::{FromRow, Postgres, QueryBuilder};
 use tracing::{debug, instrument};
-// Untuk jsonb
 use uuid::Uuid;
 
 use crate::{
@@ -20,33 +18,15 @@ use crate::{
         types::WhereField,
     },
     infrastructure::{
-        db::{ats_client::AtsClient, organization_client::OrganizationClient},
-        ingestion::{
-            ats::types::AtsIngestionTable,
-            organization::{
-                enums::OrganizationTableEnum,
-                organization_postgres_client::OrganizatinPostgresClient,
-            },
-        },
+        db::organization_client::OrganizationClient,
+        source::oltp::organization::enums::OrganizationTableEnum,
     },
 };
-// Untuk numeric
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct IngestionJobLevelModel {
     pub id: Uuid,
-    pub name: String, // pub description: Option<String>,
-                      // pub tenant_id: Uuid,
-                      // pub group_id: Option<Uuid>,
-                      // pub cost_center_id: Option<Uuid>,
-                      // pub parent_id: Option<Uuid>,
-                      // pub status: String, // Bisa diubah ke Enum jika Anda memiliki define enum-nya
-                      // pub created_at: NaiveDateTime,
-                      // pub updated_at: Option<NaiveDateTime>,
-                      // pub deleted_at: Option<NaiveDateTime>,
-                      // pub permission_keys: Vec<String>,
-                      // pub filterable_attribute: Option<JsonValue>,
-                      // pub keywords: Option<Vec<String>>,
+    pub name: String,
 }
 pub struct IngestionJobLevelSource {
     pub pool: Arc<OrganizationClient>,

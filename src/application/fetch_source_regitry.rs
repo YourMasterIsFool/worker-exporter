@@ -1,12 +1,26 @@
 use std::sync::Arc;
 
+use crate::infrastructure::source::oltp::organization::document::{
+    onboarding_items::OnboardingItemsSource, onboarding_template::OnboardingTemplateSource,
+};
 use crate::{
     core::traits::{etl::DataFetcherJson, strategy::registry::Registry},
     infrastructure::{
         db::db_manager::DatabaseInfraManager,
         ingestion::{
+            hris::{
+                attedances::attedance_locations::IngestionHrisAttedanceLocationsSource,
+                employee::{
+                    employee::IngestionEmployeeSource,
+                    emplyoee_statuses::IngestionEmployeeStatusesSource,
+                },
+            },
+            master::{geo::MasterGeoSource, master_item::MasterMasterItemsSource},
+        },
+        source::oltp::{
             ats::{
                 applicant::{
+                    applicant_bucket::AtsApplicantBucketSource,
                     requirement_stage_template::IngestionRequirementStageTemplateSource,
                     requirement_stage_template_detail::IngestionRequirementStageTemplateDetailSource,
                 },
@@ -21,14 +35,6 @@ use crate::{
                 },
                 vacancy::vacancy::AtsVacancySource,
             },
-            hris::{
-                attedances::attedance_locations::IngestionHrisAttedanceLocationsSource,
-                employee::{
-                    employee::IngestionEmployeeSource,
-                    emplyoee_statuses::IngestionEmployeeStatusesSource,
-                },
-            },
-            master::{geo::MasterGeoSource, master_item::MasterMasterItemsSource},
             organization::{
                 core::{
                     ingestion_job_grade::IngestionJobGradeSource,
@@ -48,6 +54,7 @@ use crate::{
         },
     },
 };
+
 pub type DataFetcherJsonRegistry = Registry<dyn DataFetcherJson + Send + Sync>;
 
 pub struct DataFetcherJsonRegistryStruct {
@@ -96,6 +103,13 @@ pub fn build_data_fetcher_json_registry(
     registry.register(
         "ats_vacancy_fetcher",
         Arc::new(AtsVacancySource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "ats_applicant_bucket_fetcher",
+        Arc::new(AtsApplicantBucketSource {
             pool: manager.ats.clone(),
         }),
     );
@@ -239,6 +253,21 @@ pub fn build_data_fetcher_json_registry(
             pool: manager.organization.clone(),
         }),
     );
+
+    registry.register(
+        "ONBOARDING_ITEMS",
+        Arc::new(OnboardingItemsSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
+    registry.register(
+        "ONBOARDING_TEMPLATE",
+        Arc::new(OnboardingTemplateSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
     registry.register(
         "EMPLOYMENT_STATUS",
         Arc::new(IngestionEmployeeStatusesSource {

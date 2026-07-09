@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 
+use crate::core::types::WhereField;
+use crate::core::types::{CastingEnum, Identifierable};
 use serde::Serialize;
 use sqlx::{postgres::PgRow, FromRow, PgPool, Postgres, QueryBuilder};
 use tracing::debug;
 use uuid::Uuid;
-use worker_exporter::core::types::WhereField;
-use crate::core::types::{CastingEnum, Identifierable};
 
 pub async fn resolve_query_builder_incremental_cursor<T>(
     qb: &mut QueryBuilder<'_, Postgres>,
@@ -44,14 +44,12 @@ where
     }
 }
 
-
 pub struct IncrementalCursorResolver<'q, T> {
     qb: QueryBuilder<'q, Postgres>,
     pool: &'q PgPool,
     limit: i64,
     source_debug: &'q str,
     _marker: std::marker::PhantomData<T>,
-
 }
 
 // -------------------------------------------------------------------------
@@ -62,7 +60,12 @@ impl<'q, T> IncrementalCursorResolver<'q, T>
 where
     T: for<'r> FromRow<'r, PgRow> + Identifierable + serde::Serialize + Send + Unpin + 'static,
 {
-    pub fn new(qb: QueryBuilder<'q, Postgres>, pool: &'q PgPool, default_limit: i64, source_debug: &'q str) -> Self {
+    pub fn new(
+        qb: QueryBuilder<'q, Postgres>,
+        pool: &'q PgPool,
+        default_limit: i64,
+        source_debug: &'q str,
+    ) -> Self {
         let mut query = qb;
         query.push(" WHERE 1=1 ");
         Self {
@@ -75,23 +78,31 @@ where
     }
 
     // Mengintegrasikan WhereField langsung di dalam method struct
-    pub fn with_filters(mut self, where_fields: &Option<Vec<WhereField>>) -> Self {
-
+    pub fn with_filters(mut self, where_fields: &'q std::option::Option<Vec<WhereField>>) -> Self {
         if let Some(where_fields) = where_fields {
             for filter in where_fields {
-                let casting = format!("::{}", filter.casting.unwrap_or(CastingEnum::Varchar).as_str());
+                let casting = format!(
+                    "::{}",
+                    filter
+                        .casting
+                        .clone()
+                        .unwrap_or(CastingEnum::Varchar)
+                        .as_str()
+                );
 
                 // Single value handling
-                if let Some(value) = filter.value {
-                    self.qb.push(format!(" AND {} {} ", filter.field, filter.operator));
+                if let Some(value) = &filter.value {
+                    self.qb
+                        .push(format!(" AND {} {} ", filter.field, filter.operator));
                     self.qb.push_bind(value);
                     self.qb.push(&casting);
                 }
 
                 // Multiple values handling (IN)
-                if let Some(values) = filter.values {
+                if let Some(values) = &filter.values {
                     if !values.is_empty() {
-                        self.qb.push(format!(" AND {} {} (", filter.field, filter.operator));
+                        self.qb
+                            .push(format!(" AND {} {} (", filter.field, filter.operator));
                         let mut separated = self.qb.separated(", ");
                         for val in values {
                             separated.push_bind(val);
@@ -116,13 +127,15 @@ where
     pub async fn resolve(mut self) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
         self.qb.push(" LIMIT ").push_bind(self.limit);
         tracing::info!("running resolve {}", self.source_debug);
-        let result = self.qb
+        let result = self
+            .qb
             .build_query_as::<T>()
             .fetch_all(self.pool)
-            .await.map_err(|err|{
-            tracing::error!("error {} resolve {} ", err, self.source_debug);
-            err
-        });
+            .await
+            .map_err(|err| {
+                tracing::error!("error {} resolve {} ", err, self.source_debug);
+                err
+            })?;
 
         let last_cursor = result.last().map(|last| last.get_id());
 

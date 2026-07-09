@@ -19,7 +19,7 @@ use crate::{
         },
         types::WhereField,
     },
-    infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
+    infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
 
 #[derive(Debug, Default, FromRow, Serialize, Deserialize)]

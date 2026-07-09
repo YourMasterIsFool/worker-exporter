@@ -11,7 +11,7 @@ pub fn normalize_hris_filters(filters: Option<Vec<WhereField>>) -> Option<Vec<Wh
             .map(|mut field| {
                 let is_string_id_column = field.field == "id" || field.field.ends_with("_id");
 
-                if is_string_id_column {
+                if is_string_id_column && field.field != "tenant_id" {
                     field.casting = Some(CastingEnum::Varchar);
                 }
 

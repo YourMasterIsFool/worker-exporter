@@ -18,7 +18,7 @@ use crate::{
         },
         types::WhereField,
     },
-    infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
+    infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
 // Untuk numeric
 

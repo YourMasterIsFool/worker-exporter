@@ -9,7 +9,7 @@ use crate::{
         db::{
             ats_client::AtsClient, master_client::MasterClient, warehouse_client::WarehouseClient,
         },
-        ingestion::{
+        source::oltp::{
             ats::{
                 applicant::applicant_bucket::AtsApplicantBucketSource,
                 candidate::{

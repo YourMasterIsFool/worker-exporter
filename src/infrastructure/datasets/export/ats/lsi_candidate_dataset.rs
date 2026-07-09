@@ -84,6 +84,87 @@ pub struct LsiCandidateDataset {
 }
 
 impl LsiCandidateDataset {
+    fn pg_text_array_literal(values: Vec<String>) -> String {
+        let escaped_values = values
+            .into_iter()
+            .map(|value| {
+                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("\"{}\"", escaped)
+            })
+            .collect::<Vec<String>>();
+
+        format!("{{{}}}", escaped_values.join(","))
+    }
+
+    fn normalize_candidate_filters(filters: Option<Vec<WhereField>>) -> Option<Vec<WhereField>> {
+        filters.map(|filters| {
+            filters
+                .into_iter()
+                .map(|mut filter| {
+                    let field_name = filter
+                        .field
+                        .split('.')
+                        .last()
+                        .unwrap_or(&filter.field)
+                        .trim();
+
+                    if field_name == "tenant_id" {
+                        let tenant_ids = filter
+                            .values
+                            .clone()
+                            .or_else(|| filter.value.clone().map(|value| vec![value]))
+                            .unwrap_or_default();
+
+                        filter.field = "tenant_pool_keys".into();
+                        filter.operator = "&&".into();
+                        filter.value = Some(Self::pg_text_array_literal(tenant_ids));
+                        filter.values = None;
+                        filter.casting = Some(CastingEnum::Enum("text[]".into()));
+                    }
+
+                    filter
+                })
+                .collect()
+        })
+    }
+
+    fn tenant_ids_from_filters(filters: Option<&Vec<WhereField>>) -> Vec<String> {
+        filters
+            .into_iter()
+            .flatten()
+            .filter(|filter| {
+                filter
+                    .field
+                    .split('.')
+                    .last()
+                    .unwrap_or(&filter.field)
+                    .trim()
+                    == "tenant_id"
+            })
+            .flat_map(|filter| {
+                filter
+                    .values
+                    .clone()
+                    .or_else(|| filter.value.clone().map(|value| vec![value]))
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    fn tenant_id_filter(tenant_ids: Vec<String>) -> Option<WhereField> {
+        if tenant_ids.is_empty() {
+            return None;
+        }
+
+        Some(WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            values: Some(tenant_ids),
+            value: None,
+            casting: Some(CastingEnum::Uuid),
+        })
+    }
+
     pub fn get_map_custom_field(
         &self,
         key: &str,
@@ -133,14 +214,17 @@ impl LsiCandidateDataset {
 #[async_trait::async_trait]
 impl Dataset for LsiCandidateDataset {
     async fn get_min_cursor(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<String> {
-        let sql = format!(" SELECT id from {} ", "applicant.applicant_bucket");
+        let sql = format!(" SELECT id from {} ", "candidate.candidate");
         let mut qb = QueryBuilder::new(&sql);
 
-        if let Some(filters) = filters {
+        if let Some(filters) = Self::normalize_candidate_filters(filters) {
             qb.push(" WHERE 1=1 ");
             for field in filters {
                 qb.push(format!(" AND {} {} ", field.field, field.operator))
                     .push_bind(field.value);
+                if let Some(casting) = field.casting {
+                    qb.push(format!("::{}", casting.as_str()));
+                }
             }
         }
 
@@ -169,15 +253,19 @@ impl Dataset for LsiCandidateDataset {
                 columns = c.clone();
             }
         }
+        let tenant_ids = match strategy_enum {
+            LoadEnum::Select(filters, _) => Self::tenant_ids_from_filters(filters.as_ref()),
+            _ => vec![],
+        };
 
-        let candidate_fetcher = self.data_fetcher.get("ats_candidate_fetcher")?;
-        let applicants_source = self.source.get("oltp_ats_applicant_bucket")?;
+        let candidate_source = self.source.get("oltp_ats_candidate")?;
+        let applicant_bucket_fetcher = self.data_fetcher.get("ats_applicant_bucket_fetcher")?;
         let vacancy_fetcher = self.data_fetcher.get("ats_vacancy_fetcher")?;
 
         let education_fetcher = self.data_fetcher.get("ats_education_fetcher")?;
         let candidate_field_fetcher = self.data_fetcher.get("ats_candidate_field_fetcher")?;
         let experient_fetcher = self.data_fetcher.get("ats_experience_fetcher")?;
-  
+
         let geo_fetcher = self.data_fetcher.get("MASTER_GEO")?;
         let master_items_fetcher = self.data_fetcher.get("MASTER_ITEMS")?;
 
@@ -192,36 +280,32 @@ impl Dataset for LsiCandidateDataset {
             }
         }
 
-        // get data applicant first
-        let (applicants, next_cursor) = applicants_source
-            .extract(cursor_uuid, limit, strategy_enum)
+        let strategy_enum = match strategy_enum {
+            LoadEnum::Select(filters, columns) => LoadEnum::Select(
+                Self::normalize_candidate_filters(filters.clone()),
+                columns.clone(),
+            ),
+            LoadEnum::Upsert => LoadEnum::Upsert,
+            LoadEnum::Insert => LoadEnum::Insert,
+            LoadEnum::Update(columns) => LoadEnum::Update(columns.clone()),
+        };
+
+        // get candidate data as primary source
+        let (candidate_fetcher_data, next_cursor) = candidate_source
+            .extract(cursor_uuid, limit, &strategy_enum)
             .await?;
 
-        // get data candidate
-        let candidate_ids: Vec<String> = applicants
+        let candidate_ids: Vec<String> = candidate_fetcher_data
             .iter()
-            .filter_map(|f| {
-                // .get("candidate_id") mengembalikan Option<&Value>
-                // .as_str() mengambil &str tanpa tanda kutip tambahan
-                // .map(ToString::to_string) mengubah &str menjadi String
-                f.get("candidate_id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            })
+            .filter_map(|f| f.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
             .collect();
-        let vacancy_ids: Vec<String> = applicants
-            .iter()
-            .filter_map(|f| {
-                // .get("vacancy_id") mengembalikan Option<&Value>
-                // .as_str() mengambil &str tanpa tanda kutip tambahan
-                // .map(ToString::to_string) mengubah &str menjadi String
-                f.get("vacancy_id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            })
-            .collect();
-        let candidate_filter = vec![WhereField {
-            field: "id".into(),
+
+        if candidate_ids.is_empty() {
+            return Ok((vec![], next_cursor.map(|c| c.to_string())));
+        }
+
+        let applicant_filter = vec![WhereField {
+            field: "candidate_id".into(),
             operator: "=".into(),
             values: Some(candidate_ids.clone()),
             value: None,
@@ -236,29 +320,16 @@ impl Dataset for LsiCandidateDataset {
             casting: Some(CastingEnum::Uuid),
         }];
 
-        let candidate_client_filter = vec![
-            WhereField {
-                field: "parent_id".into(),
-                operator: "=".into(),
-                values: Some(candidate_ids.clone()),
-                value: None,
-                casting: Some(CastingEnum::Uuid),
-            },
-            WhereField {
-                field: "tenant_id".into(),
-                operator: "=".into(),
-                values: Some(vec!["019e95a5-f5f3-7dd8-952b-0ce16845d9bd".to_string()]),
-                value: None,
-                casting: Some(CastingEnum::Uuid),
-            },
-        ];
-        let vacancy_filter = vec![WhereField {
-            field: "id".into(),
+        let mut candidate_client_filter = vec![WhereField {
+            field: "parent_id".into(),
             operator: "=".into(),
-            values: Some(vacancy_ids),
+            values: Some(candidate_ids.clone()),
             value: None,
             casting: Some(CastingEnum::Uuid),
         }];
+        if let Some(filter) = Self::tenant_id_filter(tenant_ids) {
+            candidate_client_filter.push(filter);
+        }
         let experient_filter = vec![WhereField {
             field: "candidate_id".into(),
             operator: "=".into(),
@@ -270,18 +341,38 @@ impl Dataset for LsiCandidateDataset {
         // let mut address_after_decrypt_vec = Vec::with_capacity(candidate_ids.len());
         //fetch all paralelly
         let (
-            candidate_fetcher_data,
+            applicants,
             education_fetcher_data,
             experient_fetcher_data,
             candidate_client_fetcher_data,
-            vacancy_fetcher_data,
         ) = tokio::try_join!(
-            candidate_fetcher.fetch(Some(candidate_filter)),
+            applicant_bucket_fetcher.fetch(Some(applicant_filter)),
             education_fetcher.fetch(Some(education_filter)),
             experient_fetcher.fetch(Some(experient_filter)),
             candidate_field_fetcher.fetch(Some(candidate_client_filter)),
-            vacancy_fetcher.fetch(Some(vacancy_filter)),
         )?;
+
+        let vacancy_ids: Vec<String> = applicants
+            .iter()
+            .filter_map(|f| {
+                f.get("vacancy_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+
+        let vacancy_fetcher_data = if vacancy_ids.is_empty() {
+            vec![]
+        } else {
+            let vacancy_filter = vec![WhereField {
+                field: "id".into(),
+                operator: "=".into(),
+                values: Some(vacancy_ids),
+                value: None,
+                casting: Some(CastingEnum::Uuid),
+            }];
+            vacancy_fetcher.fetch(Some(vacancy_filter)).await?
+        };
 
         let identity_number_encrypt_fetcher = candidate_fetcher_data
             .iter()
@@ -325,7 +416,6 @@ impl Dataset for LsiCandidateDataset {
 
         let identity_hashmap = identity_response.plaintexts;
 
-
         let vacancy_mapper_data: HashMap<String, String> = vacancy_fetcher_data
             .iter()
             .map(|v| {
@@ -362,13 +452,17 @@ impl Dataset for LsiCandidateDataset {
         // get master gender;
         let mut master_ids = Vec::new();
         let mut master_geo_ids = Vec::new();
-        let candidate_mapper_data = candidate_fetcher_data
+        let applicant_mapper_data = applicants
             .iter()
-            .map(|c| {
-                let id = c.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                (id.to_string(), c.clone())
+            .map(|applicant| {
+                let candidate_id = applicant
+                    .get("candidate_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                (candidate_id.to_string(), applicant.clone())
             })
             .collect::<HashMap<String, _>>();
+
         for candidate in &candidate_fetcher_data {
             if let Some(id) = candidate.get("gender").and_then(|v| v.as_str()) {
                 if Uuid::parse_str(id).is_ok() {
@@ -608,27 +702,21 @@ impl Dataset for LsiCandidateDataset {
 
         let mut rows: Vec<LsiCandidateDatasetRow> = vec![];
 
-        for (index, applicant) in applicants.iter().enumerate() {
-            let candidate_id = applicant
-                .get("candidate_id")
+        for (index, candidate_map) in candidate_fetcher_data.iter().enumerate() {
+            let candidate_id = candidate_map
+                .get("id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("-")
                 .to_string();
+            let applicant = applicant_mapper_data
+                .get(candidate_id.as_str())
+                .cloned()
+                .unwrap_or_default();
             let mut vacancy_name = String::from("-");
             let applicant_date = applicant
                 .get("created_at")
                 .and_then(|v| v.as_str())
                 .unwrap_or("-");
-
-            let candidate_map = candidate_mapper_data
-                .get(
-                    applicant
-                        .get("candidate_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(""),
-                )
-                .cloned()
-                .unwrap_or_default();
             let created_at = candidate_map
                 .get("created_at")
                 .and_then(|v| v.as_str())

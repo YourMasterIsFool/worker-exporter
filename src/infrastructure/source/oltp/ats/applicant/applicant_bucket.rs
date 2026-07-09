@@ -5,21 +5,21 @@ use serde::{Deserialize, Serialize};
 use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder};
 use tracing::debug;
 // Untuk jsonb
-use uuid::Uuid;
-
+use crate::core::types::Identifierable;
+use crate::core::types::WhereField;
+use crate::utils::incremental_cursor_resolver::IncrementalCursorResolver;
 use crate::{
     core::traits::{
+        etl::{fetch_data_json, DataFetcherJson},
         extractor::{
             build_query_trait::BuildTableTrait,
             source_incremental_extract::SourceIncrementalExtract,
         },
         load::LoadEnum,
     },
-    infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
+    infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
-use crate::core::types::WhereField;
-use crate::infrastructure::ingestion::ats::candidate::candidate::AtsCandidateIngestionModel;
-use crate::utils::incremental_cursor_resolver::IncrementalCursorResolver;
+use uuid::Uuid;
 // Untuk numeric
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
@@ -40,6 +40,12 @@ pub struct AtsApplicantBucketModel {
     pub current_process: Option<JsonValue>,
     pub filterable_attribute: Option<JsonValue>,
     pub keywords: Option<Vec<String>>,
+}
+
+impl Identifierable for AtsApplicantBucketModel {
+    fn get_id(&self) -> Uuid {
+        self.id
+    }
 }
 
 pub struct AtsApplicantBucketSource {
@@ -72,6 +78,34 @@ impl BuildTableTrait<AtsIngestionTable> for AtsApplicantBucketSource {
         ]
     }
 }
+
+#[async_trait::async_trait]
+impl DataFetcherJson for AtsApplicantBucketSource {
+    async fn fetch(
+        &self,
+        filters: Option<Vec<WhereField>>,
+    ) -> anyhow::Result<Vec<serde_json::Value>> {
+        let sql = format!(
+            " SELECT DISTINCT ON (candidate_id) {} FROM {} ",
+            self.columns().join(", "),
+            self.table().table_name()
+        );
+
+        let mut qb = QueryBuilder::new(&sql);
+
+        let parse_result = fetch_data_json::<AtsApplicantBucketModel>(
+            &mut qb,
+            filters,
+            &self.pool.pool,
+            Some("candidate_id, created_at DESC, id DESC"),
+        )
+        .await?;
+
+        tracing::debug!(" applicant bucket source {:?}", parse_result.clone());
+        Ok(parse_result)
+    }
+}
+
 #[async_trait::async_trait]
 impl SourceIncrementalExtract for AtsApplicantBucketSource {
     async fn extract(
@@ -87,20 +121,23 @@ impl SourceIncrementalExtract for AtsApplicantBucketSource {
         );
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
 
-        let mut filters:Option<Vec<WhereField>> =None;
+        let mut filters: Option<Vec<WhereField>> = None;
 
         let mut incremental_resolver = IncrementalCursorResolver::<AtsApplicantBucketModel>::new(
             qb,
             &self.pool.pool,
             limit,
-            "Applicant bucket source"
+            "Applicant bucket source",
         );
 
         if let LoadEnum::Select(filter, _) = _strategy_enum {
             filters = filter.clone();
         }
 
-        incremental_resolver.with_filters(&filters).with_cursor(cursor).resolve().await
-
+        incremental_resolver
+            .with_filters(&filters)
+            .with_cursor(cursor)
+            .resolve()
+            .await
     }
 }

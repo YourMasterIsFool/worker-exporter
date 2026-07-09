@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::core::types::WhereField;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterColumn {
@@ -109,7 +108,7 @@ pub struct OrchestratorJob {
     pub(crate) ingestion_config: Option<IngestionConfig>,
     pub(crate) import_config: Option<ImporterConfig>,
     pub(crate) sync_config: Option<SyncConfig>,
-    pub(crate) filters: Option<Vec<WhereField>>, // pub(crate) fields: Vec<ExportFields>,
+    pub(crate) filters: Option<Vec<crate::core::types::WhereField>>, // pub(crate) fields: Vec<ExportFields>,
 }
 #[async_trait::async_trait]
 pub trait Orchestrator: Send + Sync {

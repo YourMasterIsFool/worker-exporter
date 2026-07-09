@@ -30,7 +30,6 @@ use crate::{
 };
 
 #[derive(Debug, Serialize)]
-
 #[serde(rename_all = "camelCase")] //
 struct EmailPublisher {
     email: String,
@@ -151,13 +150,17 @@ impl Orchestrator for ExportOrchestrator {
             .await??;
 
             let dataset = self.dataset.get(&config.dataset)?;
-            let mut cursor: Option<String> =
-                Some(dataset.as_ref().get_min_cursor(job.filters.clone()).await?);
+            let tenant_id = job
+                .import_config
+                .as_ref()
+                .map(|config| config.tenant_id.clone())
+                .filter(|tenant_id| !tenant_id.is_empty())
+                .unwrap_or_else(|| job.tenant_id.clone());
 
             let mut job_filter = vec![WhereField {
                 field: "tenant_id".into(),
                 operator: "=".to_string(),
-                value: Some(job.tenant_id.clone()),
+                value: Some(tenant_id),
                 values: None,
                 casting: Some(CastingEnum::Uuid),
             }];
@@ -165,6 +168,8 @@ impl Orchestrator for ExportOrchestrator {
             if let Some(filters) = &job.filters {
                 job_filter.extend(filters.clone());
             }
+            let mut cursor: Option<String> =
+                Some(dataset.as_ref().get_min_cursor(Some(job_filter.clone())).await?);
 
             let expor_runner = ExportRunner::run(
                 dataset.as_ref(),

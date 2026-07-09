@@ -12,18 +12,41 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="540bbee8-a143-4b4e-b6f1-96327d4c60b1" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/mod.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/document/mod.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/document/onboarding_items.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/form/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/orchestrator/orchestrator_registry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/traits/load.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/traits/load.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/datasets/export/ats/lsi_candidate_dataset.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/datasets/export/ats/lsi_candidate_dataset.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/candidate/candidate.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/candidate/candidate.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/build.rs" beforeDir="false" afterPath="$PROJECT_DIR$/build.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/fetch_source_regitry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/fetch_source_regitry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/ingestion/source_registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/ingestion/source_registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/usecases/generated_email_template_usecase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/usecases/generated_email_template_usecase.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/boostrap.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/boostrap.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/applicant/applicant_bucket.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/ats/applicant/applicant_bucket.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ingestion/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/core/ingestion_job_grade.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/core/ingestion_job_grade.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/core/ingestion_job_level.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/core/ingestion_job_level.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/core/ingestion_job_position.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/core/ingestion_job_position.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/core/ingestion_organization_unit.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/core/ingestion_organization_unit.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/core/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/core/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/enums.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/enums.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/organization_postgres_client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/organization_postgres_client.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/sql/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/sql/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/sql/tenant/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/sql/tenant/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/sql/tenant/model.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/sql/tenant/model.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/sql/tenant/source.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/sql/tenant/source.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ingestion/organization/sql/tenant_level.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/sql/tenant_level.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/source/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/source/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/incremental_cursor_resolver.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/incremental_cursor_resolver.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/query_builder.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/query_builder.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
@@ -32,6 +55,11 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="release/dev" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="MacroExpansionManager">
@@ -51,12 +79,13 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "Cargo.Run worker.executor": "Debug",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "release/dev",
-    "last_opened_file_path": "/Volumes/SSD/project/rust/worker-exporter",
+    "git-widget-placeholder": "TECHS-001-new-architecture",
+    "last_opened_file_path": "/Volumes/SSD/project/rust/worker-exporter/src/infrastructure/source/oltp",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -74,7 +103,12 @@
   }
 }]]></component>
   <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/infrastructure/source/oltp" />
+    </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/infrastructure/source/oltp/organization/document" />
+      <recent name="$PROJECT_DIR$/src/infrastructure/source/oltp/organization" />
       <recent name="$PROJECT_DIR$/src/infrastructure/loader" />
       <recent name="$PROJECT_DIR$/src/infrastructure/db" />
     </key>
@@ -82,6 +116,31 @@
   <component name="RsExternalLinterProjectSettings">
     <option name="runOnTheFly" value="false" />
     <option name="tool" value="Clippy" />
+  </component>
+  <component name="RunManager">
+    <configuration name="Run worker" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="buildProfileId" value="dev" />
+      <option name="command" value="run --package worker-exporter --bin worker" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Cargo.Run worker" />
+      </list>
+    </recent_temporary>
   </component>
   <component name="RustProjectSettings">
     <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />

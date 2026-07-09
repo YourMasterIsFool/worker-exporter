@@ -14,7 +14,7 @@ use crate::{
         load::LoadEnum,
     },
     domain::oltp::organization::tenant::{TenantIngestionEntity, TenantIngestionRepo},
-    infrastructure::ingestion::organization::{
+    infrastructure::source::oltp::organization::{
         enums::OrganizationTableEnum, organization_postgres_client::OrganizatinPostgresClient,
         sql::tenant::model::TenantModel,
     },

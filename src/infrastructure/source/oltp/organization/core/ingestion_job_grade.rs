@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
-use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder};
+use sqlx::{FromRow, Postgres, QueryBuilder};
 use tracing::{debug, instrument};
-// Untuk jsonb
 use uuid::Uuid;
 
 use crate::{
@@ -20,48 +18,30 @@ use crate::{
         types::WhereField,
     },
     infrastructure::{
-        db::{ats_client::AtsClient, organization_client::OrganizationClient},
-        ingestion::{
-            ats::types::AtsIngestionTable,
-            organization::{
-                enums::OrganizationTableEnum,
-                organization_postgres_client::OrganizatinPostgresClient,
-            },
-        },
+        db::organization_client::OrganizationClient,
+        source::oltp::organization::enums::OrganizationTableEnum,
     },
 };
-// Untuk numeric
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
-pub struct IngestionJobPositionModel {
+pub struct IngestionJobGradeModel {
     pub id: Uuid,
-    pub position_name: String, // pub description: Option<String>,
-                               // pub tenant_id: Uuid,
-                               // pub group_id: Option<Uuid>,
-                               // pub cost_center_id: Option<Uuid>,
-                               // pub parent_id: Option<Uuid>,
-                               // pub status: String, // Bisa diubah ke Enum jika Anda memiliki define enum-nya
-                               // pub created_at: NaiveDateTime,
-                               // pub updated_at: Option<NaiveDateTime>,
-                               // pub deleted_at: Option<NaiveDateTime>,
-                               // pub permission_keys: Vec<String>,
-                               // pub filterable_attribute: Option<JsonValue>,
-                               // pub keywords: Option<Vec<String>>,
+    pub name: String,
 }
-pub struct IngestionOrganizationJobPositionSource {
+pub struct IngestionJobGradeSource {
     pub pool: Arc<OrganizationClient>,
 }
 
-impl BuildTableTrait<OrganizationTableEnum> for IngestionOrganizationJobPositionSource {
+impl BuildTableTrait<OrganizationTableEnum> for IngestionJobGradeSource {
     fn table(&self) -> OrganizationTableEnum {
         // Pastikan AtsIngestionTable memiliki varian untuk JobPositions
-        OrganizationTableEnum::JobPosition
+        OrganizationTableEnum::JobGrade
     }
 
     fn columns(&self) -> &'static [&'static str] {
         &[
             "id",
-            "position_name",
+            "name",
             // "description",
             // "tenant_id",
             // "group_id",
@@ -79,29 +59,23 @@ impl BuildTableTrait<OrganizationTableEnum> for IngestionOrganizationJobPosition
 }
 
 #[async_trait::async_trait]
-impl DataFetcherJson for IngestionOrganizationJobPositionSource {
+impl DataFetcherJson for IngestionJobGradeSource {
     #[instrument(skip(self), fields(types = "ingestion job data fetcher"))]
     async fn fetch(
         &self,
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
-        let sql = format!(
-            " SELECT id, position_name from {} ",
-            self.table().table_name()
-        );
+        let sql = format!(" SELECT id, name from {} ", self.table().table_name());
 
         let mut qb = QueryBuilder::new(&sql);
 
         let parse_result =
-            fetch_data_json::<IngestionJobPositionModel>(&mut qb, filters, &self.pool.pool, None)
+            fetch_data_json::<IngestionJobGradeModel>(&mut qb, filters, &self.pool.pool, None)
                 .await;
 
         match parse_result {
             Ok(result) => {
-                tracing::debug!(
-                    " ingestion job position locations source {:?}",
-                    result.clone()
-                );
+                tracing::debug!(" ingestion job grade locations source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {
@@ -113,7 +87,7 @@ impl DataFetcherJson for IngestionOrganizationJobPositionSource {
 }
 
 #[async_trait::async_trait]
-impl SourceIncrementalExtract for IngestionOrganizationJobPositionSource {
+impl SourceIncrementalExtract for IngestionJobGradeSource {
     async fn extract(
         &self,
         cursor: Option<Uuid>,
@@ -133,7 +107,7 @@ impl SourceIncrementalExtract for IngestionOrganizationJobPositionSource {
         }
         qb.push(" LIMIT ").push_bind(limit);
         let result = qb
-            .build_query_as::<IngestionJobPositionModel>()
+            .build_query_as::<IngestionJobGradeModel>()
             .fetch_all(&self.pool.pool)
             .await;
 
@@ -146,11 +120,11 @@ impl SourceIncrementalExtract for IngestionOrganizationJobPositionSource {
                     .map(serde_json::to_value)
                     .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-                tracing::debug!("ingestion job position {:?}", parse_result);
+                tracing::debug!("ingestion job grade {:?}", parse_result);
                 Ok((parse_result, last_cursor))
             }
             Err(e) => {
-                debug!("ingestion job position {}", e);
+                debug!("ingestion job grade {}", e);
                 Err(anyhow::anyhow!(e))
             }
         }

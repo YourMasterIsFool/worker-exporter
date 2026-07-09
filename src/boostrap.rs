@@ -33,8 +33,8 @@ use crate::{
         db::{
             ats_client::AtsClient, db_manager::DatabaseInfraManager, master_client::MasterClient,
         },
-        ingestion::organization::organization_postgres_client::OrganizatinPostgresClient,
         redis::RedisPublisher,
+        source::oltp::organization::organization_postgres_client::OrganizatinPostgresClient,
     },
     repo::WarehouseRepo,
 };

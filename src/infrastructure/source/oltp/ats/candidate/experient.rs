@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, QueryBuilder};
 use tracing::instrument;
@@ -18,31 +18,34 @@ use crate::{
         },
         types::WhereField,
     },
-    infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
+    infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
 
-#[derive(Debug, Default, FromRow, Serialize, Deserialize)]
-#[sqlx(default)]
-pub struct IngestionFormTemplateModel {
+#[derive(Debug, FromRow, Serialize, Deserialize)]
+struct AtsExperienceModel {
     pub id: Uuid,
-    pub updated_at: Option<NaiveDateTime>,
-    pub created_at: Option<NaiveDateTime>,
-    pub deleted_at: Option<NaiveDateTime>,
-    pub tenant_id: Option<Uuid>,
-    pub group_id: Option<Uuid>,
-    pub name: String,
-    pub description: Option<String>,
-    pub template_type: Option<String>,
-    pub status: Option<String>,
+    pub updated_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>, // NULL di DB menjadi Option di Rust
+    pub candidate_id: Uuid,
+    pub job_title: String,
+    pub company_name: String,
+    pub employment_type: Option<String>,
+    pub industry: Option<String>,
+    pub job_description: Option<String>,
+    pub start_date: NaiveDate, // 'date' di PG biasanya map ke NaiveDate
+    pub end_date: Option<NaiveDate>,
+    pub is_still_here: bool,
+    pub job_type_id: Option<String>,
 }
 
-pub struct IngestionFormTemplateSource {
+pub struct AtsExperinceSource {
     pub pool: Arc<AtsClient>,
 }
 
-impl BuildTableTrait<AtsIngestionTable> for IngestionFormTemplateSource {
+impl BuildTableTrait<AtsIngestionTable> for AtsExperinceSource {
     fn table(&self) -> AtsIngestionTable {
-        AtsIngestionTable::FormTemplate
+        AtsIngestionTable::Experience
     }
 
     fn columns(&self) -> &'static [&'static str] {
@@ -51,42 +54,43 @@ impl BuildTableTrait<AtsIngestionTable> for IngestionFormTemplateSource {
             "updated_at",
             "created_at",
             "deleted_at",
-            "tenant_id",
-            "group_id",
-            "name",
-            "description",
-            "type::text AS template_type",
-            "status::text AS status",
+            "candidate_id",
+            "job_title",
+            "company_name",
+            "employment_type",
+            "industry",
+            "job_description",
+            "start_date",
+            "end_date",
+            "is_still_here",
+            "job_type_id",
         ]
     }
 }
 
 #[async_trait::async_trait]
-impl DataFetcherJson for IngestionFormTemplateSource {
-    #[instrument(skip(self), fields(types = "form template data fetcher"))]
+impl DataFetcherJson for AtsExperinceSource {
+    #[instrument(skip(self), fields(types = "candidate data fetcher"))]
     async fn fetch(
         &self,
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         let sql = format!(
-            " SELECT {} from {} ",
+            " SELECT DISTINCT ON (candidate_id) {} from {} ",
             self.columns().join(", "),
             self.table().table_name()
         );
 
         let mut qb = QueryBuilder::new(&sql);
 
-        let parse_result = fetch_data_json::<IngestionFormTemplateModel>(
-            &mut qb,
-            filters,
-            &self.pool.pool,
-            Some("name"),
-        )
-        .await;
+        let order_by = Some("candidate_id, start_date DESC");
+        let parse_result =
+            fetch_data_json::<AtsExperienceModel>(&mut qb, filters, &self.pool.pool, order_by)
+                .await;
 
         match parse_result {
             Ok(result) => {
-                tracing::debug!("form template source {:?}", result.clone());
+                tracing::debug!(" candidate source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {
@@ -96,9 +100,8 @@ impl DataFetcherJson for IngestionFormTemplateSource {
         }
     }
 }
-
 #[async_trait::async_trait]
-impl SourceIncrementalExtract for IngestionFormTemplateSource {
+impl SourceIncrementalExtract for AtsExperinceSource {
     async fn extract(
         &self,
         cursor: Option<Uuid>,
@@ -116,11 +119,9 @@ impl SourceIncrementalExtract for IngestionFormTemplateSource {
         if let Some(c) = cursor {
             qb.push(" WHERE id > ").push_bind(c);
         }
-        qb.push(" ORDER BY name ASC, id ASC ");
         qb.push(" LIMIT ").push_bind(limit);
-
         let result = qb
-            .build_query_as::<IngestionFormTemplateModel>()
+            .build_query_as::<AtsExperienceModel>()
             .fetch_all(&self.pool.pool)
             .await?;
 
@@ -131,7 +132,7 @@ impl SourceIncrementalExtract for IngestionFormTemplateSource {
             .map(serde_json::to_value)
             .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        tracing::debug!("form template source {:?}", parse_result.clone());
+        tracing::debug!(" candidate source {:?}", parse_result.clone());
         Ok((parse_result, last_cursor))
     }
 }

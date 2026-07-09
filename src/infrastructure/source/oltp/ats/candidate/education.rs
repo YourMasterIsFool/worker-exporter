@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bigdecimal::BigDecimal;
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, QueryBuilder};
 use tracing::instrument;
@@ -17,32 +19,54 @@ use crate::{
         },
         types::WhereField,
     },
-    infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
+    infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
-pub struct IngestionRequirementStageTemplateModel {
+struct AtsEducationModel {
     pub id: Uuid,
-    pub template_name: String,
+    pub updated_at: NaiveDateTime,
+    pub created_at: NaiveDateTime,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub candidate_id: Uuid,
+    pub institute_name: String,
+    pub level: Option<String>,
+    pub major: Option<String>,
+    pub start_date: NaiveDate,
+    pub end_date: Option<NaiveDate>,
+    pub is_still_here: bool,
+    pub academic_score: Option<BigDecimal>,
 }
 
-pub struct IngestionRequirementStageTemplateSource {
+pub struct AtsEducationSource {
     pub pool: Arc<AtsClient>,
 }
 
-impl BuildTableTrait<AtsIngestionTable> for IngestionRequirementStageTemplateSource {
+impl BuildTableTrait<AtsIngestionTable> for AtsEducationSource {
     fn table(&self) -> AtsIngestionTable {
-        AtsIngestionTable::RequirementStageTemplate
+        AtsIngestionTable::Education
     }
 
     fn columns(&self) -> &'static [&'static str] {
-        &["id", "template_name"]
+        &[
+            "id",
+            "updated_at",
+            "created_at",
+            "deleted_at",
+            "candidate_id",
+            "institute_name",
+            "level",
+            "major",
+            "start_date",
+            "end_date",
+            "is_still_here",
+            "academic_score",
+        ]
     }
 }
-
 #[async_trait::async_trait]
-impl DataFetcherJson for IngestionRequirementStageTemplateSource {
-    #[instrument(skip(self), fields(types = "requirement stage template data fetcher"))]
+impl DataFetcherJson for AtsEducationSource {
+    #[instrument(skip(self), fields(types = "candidate data fetcher"))]
     async fn fetch(
         &self,
         filters: Option<Vec<WhereField>>,
@@ -55,17 +79,12 @@ impl DataFetcherJson for IngestionRequirementStageTemplateSource {
 
         let mut qb = QueryBuilder::new(&sql);
 
-        let parse_result = fetch_data_json::<IngestionRequirementStageTemplateModel>(
-            &mut qb,
-            filters,
-            &self.pool.pool,
-            None,
-        )
-        .await;
+        let parse_result =
+            fetch_data_json::<AtsEducationModel>(&mut qb, filters, &self.pool.pool, None).await;
 
         match parse_result {
             Ok(result) => {
-                tracing::debug!("requirement stage template source {:?}", result.clone());
+                tracing::debug!(" candidate source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {
@@ -77,7 +96,7 @@ impl DataFetcherJson for IngestionRequirementStageTemplateSource {
 }
 
 #[async_trait::async_trait]
-impl SourceIncrementalExtract for IngestionRequirementStageTemplateSource {
+impl SourceIncrementalExtract for AtsEducationSource {
     async fn extract(
         &self,
         cursor: Option<Uuid>,
@@ -96,9 +115,8 @@ impl SourceIncrementalExtract for IngestionRequirementStageTemplateSource {
             qb.push(" WHERE id > ").push_bind(c);
         }
         qb.push(" LIMIT ").push_bind(limit);
-
         let result = qb
-            .build_query_as::<IngestionRequirementStageTemplateModel>()
+            .build_query_as::<AtsEducationModel>()
             .fetch_all(&self.pool.pool)
             .await?;
 
@@ -109,10 +127,7 @@ impl SourceIncrementalExtract for IngestionRequirementStageTemplateSource {
             .map(serde_json::to_value)
             .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        tracing::debug!(
-            "requirement stage template source {:?}",
-            parse_result.clone()
-        );
+        tracing::debug!(" candidate source {:?}", parse_result.clone());
         Ok((parse_result, last_cursor))
     }
 }

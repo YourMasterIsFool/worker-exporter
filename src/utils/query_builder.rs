@@ -2,9 +2,9 @@ use sqlx::{Postgres, QueryBuilder};
 
 use crate::core::types::{CastingEnum, WhereField};
 
-pub fn resolve_query_builder_with_where_fields(
-    qb: &mut QueryBuilder<Postgres>,
-    optional_where_fields: &Option<Vec<WhereField>>,
+pub fn resolve_query_builder_with_where_fields<'a>(
+    qb: &mut QueryBuilder<'a, Postgres>,
+    optional_where_fields: &'a Option<Vec<WhereField>>,
 ) {
     if let Some(where_fields) = optional_where_fields {
         for filter in where_fields {

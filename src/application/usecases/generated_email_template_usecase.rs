@@ -1,12 +1,11 @@
 use std::{path::Path, sync::Arc, vec};
 
-use anyhow::anyhow;
+use futures_util::future::try_join_all;
 use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
 
 use crate::{
     application::fetch_source_regitry::DataFetcherJsonRegistry,
     core::types::{CastingEnum, WhereField},
-    infrastructure::ingestion::hris::employee::employee,
 };
 
 pub struct GeneratedEmailTemplateUsecase {
@@ -148,6 +147,14 @@ impl GeneratedEmailTemplateUsecase {
             casting: Some(CastingEnum::Uuid),
         }];
 
+        let onboarding_items_filter = vec![WhereField {
+            field: "tenant_id".into(),
+            operator: "=".into(),
+            value: None,
+            values: Some(vec![tenant_id.into()]),
+            casting: Some(CastingEnum::Uuid),
+        }];
+
         let region_filter = vec![WhereField {
             field: "category_id".into(),
             operator: "=".into(),
@@ -228,6 +235,18 @@ impl GeneratedEmailTemplateUsecase {
                 filter: Some(employment_status_filter),
                 name_field: "name",
             },
+            // MasterConfig {
+            //     title: "Onboarding Items".into(),
+            //     fetcher_key: "ONBOARDING_ITEMS".into(),
+            //     filter: Some(onboarding_items_filter),
+            //     name_field: "group_name",
+            // },
+            MasterConfig {
+                title: "PRE ONBOARDING TEMPLATE".into(),
+                fetcher_key: "ONBOARDING_TEMPLATE".into(),
+                filter: Some(onboarding_items_filter),
+                name_field: "group_name",
+            },
             MasterConfig {
                 title: "Stage Template".into(),
                 fetcher_key: "STAGE_TEMPLATE".into(),
@@ -267,12 +286,18 @@ impl GeneratedEmailTemplateUsecase {
         ];
 
         let master_sheet = workbook.add_worksheet().set_name("master_template")?;
+        let master_fetches = masters.iter().map(|config| {
+            let fetcher = self.fetcher.get(&config.fetcher_key);
+            let filter = config.filter.clone();
 
-        // Loop otomatis
-        for (idx, config) in masters.iter().enumerate() {
-            let fetcher = self.fetcher.get(&config.fetcher_key)?;
-            let raw_data = fetcher.fetch(config.filter.clone()).await?;
+            async move {
+                let fetcher = fetcher?;
+                fetcher.fetch(filter).await
+            }
+        });
+        let master_data = try_join_all(master_fetches).await?;
 
+        for (idx, (config, raw_data)) in masters.iter().zip(master_data.iter()).enumerate() {
             let rows: Vec<LookupRow> = raw_data
                 .iter()
                 .map(|row| LookupRow {

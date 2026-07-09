@@ -6,6 +6,8 @@ pub enum OrganizationTableEnum {
     OrganizationUnit,
     JobGrade,
     JobLevel,
+    OnboardingItems,
+    OnboardingTemplate,
 }
 
 impl TableEnum for OrganizationTableEnum {
@@ -16,6 +18,8 @@ impl TableEnum for OrganizationTableEnum {
             OrganizationTableEnum::OrganizationUnit => "core.organization_units",
             OrganizationTableEnum::JobLevel => "core.job_levels",
             OrganizationTableEnum::JobGrade => "core.job_grades",
+            OrganizationTableEnum::OnboardingItems => "document.onboarding_template_items",
+            OrganizationTableEnum::OnboardingTemplate => "document.onboarding_templates",
         }
     }
 }

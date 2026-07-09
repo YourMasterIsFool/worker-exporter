@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bigdecimal::BigDecimal;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{FromRow, Postgres, QueryBuilder};
 use tracing::instrument;
 use uuid::Uuid;
@@ -19,54 +19,60 @@ use crate::{
         },
         types::WhereField,
     },
-    infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
+    infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
 
-#[derive(Debug, FromRow, Serialize, Deserialize)]
-struct AtsEducationModel {
+#[derive(Debug, Default, FromRow, Serialize, Deserialize)]
+#[sqlx(default)]
+pub struct IngestionFormTemplateDetailModel {
     pub id: Uuid,
-    pub updated_at: NaiveDateTime,
-    pub created_at: NaiveDateTime,
+    pub name: String,
+    pub updated_at: Option<NaiveDateTime>,
+    pub created_at: Option<NaiveDateTime>,
     pub deleted_at: Option<NaiveDateTime>,
-    pub candidate_id: Uuid,
-    pub institute_name: String,
-    pub level: Option<String>,
-    pub major: Option<String>,
-    pub start_date: NaiveDate,
-    pub end_date: Option<NaiveDate>,
-    pub is_still_here: bool,
-    pub academic_score: Option<BigDecimal>,
+    pub form_field_id: Option<Uuid>,
+    pub template_id: Option<Uuid>,
+    pub sequence: Option<i32>,
+    pub is_mandatory: Option<bool>,
+    pub status: Option<String>,
+    pub criteria: Option<Value>,
+    pub score_setting: Option<Value>,
+    pub duration_in_minute: Option<i32>,
+    pub field_snapshot: Option<Value>,
 }
 
-pub struct AtsEducationSource {
+pub struct IngestionFormTemplateDetailSource {
     pub pool: Arc<AtsClient>,
 }
 
-impl BuildTableTrait<AtsIngestionTable> for AtsEducationSource {
+impl BuildTableTrait<AtsIngestionTable> for IngestionFormTemplateDetailSource {
     fn table(&self) -> AtsIngestionTable {
-        AtsIngestionTable::Education
+        AtsIngestionTable::FormTemplateDetail
     }
 
     fn columns(&self) -> &'static [&'static str] {
         &[
             "id",
+            "COALESCE(field_snapshot->>'name', id::text) AS name",
             "updated_at",
             "created_at",
             "deleted_at",
-            "candidate_id",
-            "institute_name",
-            "level",
-            "major",
-            "start_date",
-            "end_date",
-            "is_still_here",
-            "academic_score",
+            "form_field_id",
+            "template_id",
+            "sequence",
+            "is_mandatory",
+            "status::text AS status",
+            "criteria",
+            "score_setting",
+            "duration_in_minute",
+            "field_snapshot",
         ]
     }
 }
+
 #[async_trait::async_trait]
-impl DataFetcherJson for AtsEducationSource {
-    #[instrument(skip(self), fields(types = "candidate data fetcher"))]
+impl DataFetcherJson for IngestionFormTemplateDetailSource {
+    #[instrument(skip(self), fields(types = "form template detail data fetcher"))]
     async fn fetch(
         &self,
         filters: Option<Vec<WhereField>>,
@@ -79,12 +85,17 @@ impl DataFetcherJson for AtsEducationSource {
 
         let mut qb = QueryBuilder::new(&sql);
 
-        let parse_result =
-            fetch_data_json::<AtsEducationModel>(&mut qb, filters, &self.pool.pool, None).await;
+        let parse_result = fetch_data_json::<IngestionFormTemplateDetailModel>(
+            &mut qb,
+            filters,
+            &self.pool.pool,
+            Some("sequence"),
+        )
+        .await;
 
         match parse_result {
             Ok(result) => {
-                tracing::debug!(" candidate source {:?}", result.clone());
+                tracing::debug!("form template detail source {:?}", result.clone());
                 Ok(result)
             }
             Err(e) => {
@@ -96,7 +107,7 @@ impl DataFetcherJson for AtsEducationSource {
 }
 
 #[async_trait::async_trait]
-impl SourceIncrementalExtract for AtsEducationSource {
+impl SourceIncrementalExtract for IngestionFormTemplateDetailSource {
     async fn extract(
         &self,
         cursor: Option<Uuid>,
@@ -114,9 +125,11 @@ impl SourceIncrementalExtract for AtsEducationSource {
         if let Some(c) = cursor {
             qb.push(" WHERE id > ").push_bind(c);
         }
+        qb.push(" ORDER BY sequence ASC, id ASC ");
         qb.push(" LIMIT ").push_bind(limit);
+
         let result = qb
-            .build_query_as::<AtsEducationModel>()
+            .build_query_as::<IngestionFormTemplateDetailModel>()
             .fetch_all(&self.pool.pool)
             .await?;
 
@@ -127,7 +140,7 @@ impl SourceIncrementalExtract for AtsEducationSource {
             .map(serde_json::to_value)
             .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        tracing::debug!(" candidate source {:?}", parse_result.clone());
+        tracing::debug!("form template detail source {:?}", parse_result.clone());
         Ok((parse_result, last_cursor))
     }
 }
