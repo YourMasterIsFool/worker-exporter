@@ -15,7 +15,7 @@ use crate::{
         repo::LoggingRepo,
     },
     errors::DomainError,
-    utils::build_query,
+    utils::load_query::build_query,
 };
 
 #[derive(sqlx::FromRow, Debug)]

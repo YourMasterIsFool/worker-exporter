@@ -6,6 +6,8 @@ use sqlx::{Postgres, QueryBuilder};
 use tracing::{debug, instrument};
 use uuid::Uuid;
 
+use crate::core::types::{CastingEnum, Identifierable};
+use crate::utils::query_builder::resolve_query_builder_with_where_fields;
 use crate::{
     core::{
         traits::{
@@ -20,8 +22,7 @@ use crate::{
     },
     infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
 };
-use crate::core::types::CastingEnum;
-use crate::utils::resolve_query_builder_with_where_fields;
+use crate::utils::incremental_cursor_resolver::IncrementalCursorResolver;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AtsCandidateIngestionModel {
@@ -102,6 +103,12 @@ pub struct AtsCandidateIngestionModel {
     pub total_experience_id: Option<Uuid>,
 }
 
+
+impl Identifierable for AtsCandidateIngestionModel {
+    fn get_id(&self) -> Uuid {
+        self.id
+    }
+}
 pub struct AtsCandidateSource {
     pub pool: Arc<AtsClient>,
 }
@@ -213,45 +220,24 @@ impl SourceIncrementalExtract for AtsCandidateSource {
         _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
 
-
-        tracing::debug!("extract cursor: {:?}, limit: {}", cursor, limit);
         let sql_query = format!("SELECT * FROM {}", self.table().table_name());
 
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
 
-        qb.push(" WHERE 1=1 ");
+        let mut filters:Option<Vec<WhereField>> =None;
 
-        if let LoadEnum::Select(filter, _) =  _strategy_enum {
-            resolve_query_builder_with_where_fields(&mut qb, filter);
+        let mut incremental_resolver = IncrementalCursorResolver::<AtsCandidateIngestionModel>::new(
+            qb,
+            &self.pool.pool,
+            limit,
+            "ATS CANDIDATE SOURC"
+        );
+
+        if let LoadEnum::Select(filter, _) = _strategy_enum {
+            filters = filter.clone();
         }
 
-        if let Some(c) = cursor {
-            qb.push("  AND id > ").push_bind(c);
-        }
-        qb.push(" LIMIT ").push_bind(limit);
-        let result = qb
-            .build_query_as::<AtsCandidateIngestionModel>()
-            .fetch_all(&self.pool.pool)
-            .await;
+        incremental_resolver.with_filters(&filters).with_cursor(cursor).resolve().await
 
-        match result {
-            Ok(result) => {
-                debug!("result candidate ingestion : {:?}", result.iter().clone());
-                let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
-
-                tracing::debug!("result ingestion: {:?}", result.iter().clone());
-                let parse_result = result
-                    .iter()
-                    .map(serde_json::to_value)
-                    .collect::<Result<Vec<serde_json::Value>, _>>()?;
-
-                tracing::debug!(" candidate source {:?}", parse_result.clone());
-                Ok((parse_result, last_cursor))
-            }
-            Err(e) => {
-                debug!("errr {:?}", e);
-                return Err(e.into());
-            }
-        }
     }
 }

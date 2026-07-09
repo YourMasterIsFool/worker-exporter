@@ -17,6 +17,9 @@ use crate::{
     },
     infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
 };
+use crate::core::types::WhereField;
+use crate::infrastructure::ingestion::ats::candidate::candidate::AtsCandidateIngestionModel;
+use crate::utils::incremental_cursor_resolver::IncrementalCursorResolver;
 // Untuk numeric
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
@@ -82,34 +85,22 @@ impl SourceIncrementalExtract for AtsApplicantBucketSource {
             self.columns().join(","),
             self.table().table_name()
         );
-
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
 
-        if let Some(c) = cursor {
-            qb.push(" WHERE id > ").push_bind(c);
+        let mut filters:Option<Vec<WhereField>> =None;
+
+        let mut incremental_resolver = IncrementalCursorResolver::<AtsApplicantBucketModel>::new(
+            qb,
+            &self.pool.pool,
+            limit,
+            "Applicant bucket source"
+        );
+
+        if let LoadEnum::Select(filter, _) = _strategy_enum {
+            filters = filter.clone();
         }
-        qb.push(" LIMIT ").push_bind(limit);
-        let result = qb
-            .build_query_as::<AtsApplicantBucketModel>()
-            .fetch_all(&self.pool.pool)
-            .await;
 
-        match result {
-            Ok(result) => {
-                let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
+        incremental_resolver.with_filters(&filters).with_cursor(cursor).resolve().await
 
-                let parse_result = result
-                    .iter()
-                    .map(serde_json::to_value)
-                    .collect::<Result<Vec<serde_json::Value>, _>>()?;
-
-                tracing::debug!("applicant source {:?}", parse_result);
-                Ok((parse_result, last_cursor))
-            }
-            Err(e) => {
-                debug!("errror applicant bucket {}", e);
-                Err(anyhow::anyhow!(e))
-            }
-        }
     }
 }

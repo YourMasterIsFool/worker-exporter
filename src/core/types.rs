@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use calamine::Data;
 use serde::{Deserialize, Serialize};
-
+use uuid::Uuid;
 use crate::core::traits::orchestrator::{ImporterColumn, ImporterConfig, SyncConfig, TypeDataEnum};
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -30,6 +30,11 @@ impl CastingEnum {
         }
     }
 }
+
+pub trait Identifierable {
+    fn get_id(&self) -> Uuid;
+}
+
 
 // struct buat sync data
 #[derive(Debug, Serialize, Clone)]

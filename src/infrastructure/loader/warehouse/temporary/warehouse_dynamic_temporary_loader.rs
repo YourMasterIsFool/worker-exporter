@@ -16,7 +16,7 @@ use crate::{
         db::warehouse_client::WarehouseClient, ingestion::master,
         loader::warehouse::types::WarehouseTemporaryTable,
     },
-    utils::{build_query, reformated_value},
+    utils::{load_query::build_query, value::reformated_value},
 };
 use anyhow::Result;
 

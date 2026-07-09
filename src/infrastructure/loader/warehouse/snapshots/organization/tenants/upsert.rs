@@ -7,7 +7,7 @@ use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::infrastructure::loader::warehouse::snapshots::organization::tenants::model::TenantSnapshotModel;
 use crate::{
     core::traits::load::{IncrementalLoadPersitence, LoadEnum, LoaderPersitence},
-    utils::build_query,
+    utils::load_query::build_query,
 };
 
 pub struct TenantWarehouseSnapshot {

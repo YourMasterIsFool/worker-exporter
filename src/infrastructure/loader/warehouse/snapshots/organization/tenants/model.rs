@@ -4,7 +4,8 @@ use serde::Serialize;
 use sqlx::prelude::FromRow;
 
 use crate::{
-    domain::snapshots::organization::tenant_snapshot::TenantSnapshot, utils::reformated_value,
+    domain::snapshots::organization::tenant_snapshot::TenantSnapshot,
+    utils::value::reformated_value,
 };
 
 #[derive(Debug, Clone, FromRow, Serialize)]

@@ -15,7 +15,7 @@ use crate::{
         },
         types::{CastingEnum, ImportDatasetConfig, ImportRow, WhereField},
     },
-    utils::calamine_to_json,
+    utils::value::calamine_to_json,
 };
 use std::{
     collections::{HashMap, HashSet},

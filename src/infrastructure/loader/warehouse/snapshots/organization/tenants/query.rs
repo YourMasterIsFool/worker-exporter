@@ -14,7 +14,7 @@ use crate::{
     domain::snapshots::organization::tenant_snapshot::{
         TenantSnapshot, TenantSnapshotQueryRepository,
     },
-    utils::build_query,
+    utils::load_query::build_query,
 };
 
 pub struct TenantPoolQuerySnapshot {

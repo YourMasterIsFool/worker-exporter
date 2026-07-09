@@ -15,7 +15,7 @@ use crate::{
         types::{CastingEnum, ImportDatasetConfig, ImportTableResult, TableStrategy, WhereField},
     },
     infrastructure::datasets::import::dynamci_dataset_v1::DynamicDatasetV1,
-    utils::calamine_to_json,
+    utils::value::calamine_to_json,
 };
 
 pub struct LsiImportVacancyV1 {
