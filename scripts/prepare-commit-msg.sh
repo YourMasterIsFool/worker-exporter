@@ -9,9 +9,15 @@ case "$source" in
     ;;
 esac
 
-if [ -z "$message_file" ] || [ ! -t 0 ]; then
+if [ -z "$message_file" ]; then
   exit 0
 fi
+
+if [ ! -t 0 ]; then
+  exit 0
+fi
+
+export TERM="${TERM:-xterm-256color}"
 
 normalize_scope_part() {
   printf '%s' "$1" \
@@ -20,7 +26,7 @@ normalize_scope_part() {
 }
 
 ask() {
-  printf '%s' "$1"
+  printf '%s' "$1" >&2
   IFS= read -r answer
   printf '%s' "$answer"
 }
@@ -67,21 +73,6 @@ print_conventional_commit_menu() {
   printf ' 11. revert   - Revert\n'
 }
 
-render_conventional_commit_picker() {
-  selected="$1"
-
-  printf '\nConventional Commits:\n'
-  for index in "${!commit_types[@]}"; do
-    if [ "$index" -eq "$selected" ]; then
-      printf ' > [%s] %-8s - %s\n' 'x' "${commit_types[$index]}" "${commit_descriptions[$index]}"
-    else
-      printf '   [%s] %-8s - %s\n' ' ' "${commit_types[$index]}" "${commit_descriptions[$index]}"
-    fi
-  done
-  printf '\nGunakan ↑/↓ lalu spasi/enter. Bisa ketik nomor/nama lalu enter.\n'
-  printf 'Pilih Conventional Commit (default fix): '
-}
-
 ask_conventional_commit_with_cursor() {
   commit_types=(fix feat docs style refactor perf test build ci chore revert)
   commit_icons=("🐛" "✨" "📝" "💄" "♻️" "⚡" "✅" "🏗️" "👷" "🔧" "⏪")
@@ -100,24 +91,33 @@ ask_conventional_commit_with_cursor() {
   )
 
   selected=0
-  typed=""
 
   while true; do
-    render_conventional_commit_picker "$selected"
+    printf '\033[2J\033[H'
+    printf 'Conventional Commits:\n'
+    for index in "${!commit_types[@]}"; do
+      if [ "$index" -eq "$selected" ]; then
+        printf ' > [x] %-8s - %s\n' "${commit_types[$index]}" "${commit_descriptions[$index]}"
+      else
+        printf '   [ ] %-8s - %s\n' "${commit_types[$index]}" "${commit_descriptions[$index]}"
+      fi
+    done
+    printf '\nGunakan ↑/↓ lalu spasi/enter. Bisa ketik nomor/nama lalu enter.\n'
+    printf 'Pilih Conventional Commit (default fix): '
 
     IFS= read -rsn1 key
     case "$key" in
       $'\x1b')
-        IFS= read -rsn2 key
+        IFS= read -rsn2 -t 1 key || key=""
         case "$key" in
-          '[A')
+          '[A'|'OA')
             if [ "$selected" -le 0 ]; then
               selected=$((${#commit_types[@]} - 1))
             else
               selected=$((selected - 1))
             fi
             ;;
-          '[B')
+          '[B'|'OB')
             selected=$(((selected + 1) % ${#commit_types[@]}))
             ;;
         esac
@@ -128,14 +128,10 @@ ask_conventional_commit_with_cursor() {
         printf '\n'
         return
         ;;
-      $'\177'|$'\b')
-        typed="${typed%?}"
-        ;;
       *)
-        typed="${typed}${key}"
         printf '%s' "$key"
         IFS= read -r rest
-        commit_choice="${typed}${rest}"
+        commit_choice="${key}${rest}"
         case "$commit_choice" in
           ""|1|fix) commit_type="fix"; icon="🐛"; return ;;
           2|feat) commit_type="feat"; icon="✨"; return ;;
@@ -148,13 +144,10 @@ ask_conventional_commit_with_cursor() {
           9|ci) commit_type="ci"; icon="👷"; return ;;
           10|chore) commit_type="chore"; icon="🔧"; return ;;
           11|revert) commit_type="revert"; icon="⏪"; return ;;
-          *) printf '\nPilihan tidak valid. Pilih nomor 1-11 atau nama commit type.\n' ;;
+          *) printf '\nPilihan tidak valid. Pilih nomor 1-11 atau nama commit type.\n'; sleep 1 ;;
         esac
-        typed=""
         ;;
     esac
-
-    printf '\033[%sA\033[J' 15
   done
 }
 
@@ -163,8 +156,9 @@ ask_conventional_commit() {
   icon=""
 
   if [ -t 0 ]; then
-    ask_conventional_commit_with_cursor
-    return
+    if ask_conventional_commit_with_cursor; then
+      return
+    fi
   fi
 
   while [ -z "$commit_type" ]; do
