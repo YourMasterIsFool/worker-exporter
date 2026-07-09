@@ -37,7 +37,7 @@ pub fn build_orchestrator_registry(
     import_pipeline: Arc<PipelineImportRegistry>,
     publisher: Arc<dyn Publisher>,
     import_registry: Arc<ImportLoaderRegistry>,
-    import_datast_registry_v1: Arc<ImporterDatasetRegistryV1>,
+    import_dataset_registry_v1: Arc<ImporterDatasetRegistryV1>,
     fetcher_registry: Arc<DataFetcherJsonRegistry>,
     sync_aggregator: Arc<SyncAggregatorRegistry>,
 ) -> OrchestratorRegistry {
@@ -56,7 +56,7 @@ pub fn build_orchestrator_registry(
                 import_pipeline,
                 logging: logging.clone(),
                 import_load_registry: import_registry.clone(),
-                import_datasetV1: import_datast_registry_v1.clone(),
+                import_datasetV1: import_dataset_registry_v1.clone(),
                 local_cache: moka_config,
                 fetcher: fetcher_registry.clone(),
                 publisher: publisher.clone(),

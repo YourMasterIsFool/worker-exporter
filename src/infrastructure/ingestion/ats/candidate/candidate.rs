@@ -20,6 +20,8 @@ use crate::{
     },
     infrastructure::{db::ats_client::AtsClient, ingestion::ats::types::AtsIngestionTable},
 };
+use crate::core::types::CastingEnum;
+use crate::utils::resolve_query_builder_with_where_fields;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AtsCandidateIngestionModel {
@@ -210,13 +212,21 @@ impl SourceIncrementalExtract for AtsCandidateSource {
         limit: i64,
         _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
+
+
         tracing::debug!("extract cursor: {:?}, limit: {}", cursor, limit);
         let sql_query = format!("SELECT * FROM {}", self.table().table_name());
 
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
 
+        qb.push(" WHERE 1=1 ");
+
+        if let LoadEnum::Select(filter, _) =  _strategy_enum {
+            resolve_query_builder_with_where_fields(&mut qb, filter);
+        }
+
         if let Some(c) = cursor {
-            qb.push(" WHERE id > ").push_bind(c);
+            qb.push("  AND id > ").push_bind(c);
         }
         qb.push(" LIMIT ").push_bind(limit);
         let result = qb

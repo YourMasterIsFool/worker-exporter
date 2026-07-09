@@ -113,7 +113,7 @@ impl LsiCandidateDataset {
         result
     }
 
-    pub fn mapper_custom_fileds(
+    pub fn mapper_custom_fields(
         &self,
         map: &mut HashMap<String, serde_json::Value>,
         data: &Vec<serde_json::Value>,
@@ -173,12 +173,11 @@ impl Dataset for LsiCandidateDataset {
         let candidate_fetcher = self.data_fetcher.get("ats_candidate_fetcher")?;
         let applicants_source = self.source.get("oltp_ats_applicant_bucket")?;
         let vacancy_fetcher = self.data_fetcher.get("ats_vacancy_fetcher")?;
-        // let candidate_field_source = self.source.get("oltp_ats_candidate_client_field")?;
-        // let education_source = self.source.get("oltp_ats_education_source")?;
+
         let education_fetcher = self.data_fetcher.get("ats_education_fetcher")?;
         let candidate_field_fetcher = self.data_fetcher.get("ats_candidate_field_fetcher")?;
         let experient_fetcher = self.data_fetcher.get("ats_experience_fetcher")?;
-        // let experient_source = self.source.get("oltp_ats_experience_source")?;
+  
         let geo_fetcher = self.data_fetcher.get("MASTER_GEO")?;
         let master_items_fetcher = self.data_fetcher.get("MASTER_ITEMS")?;
 
@@ -326,54 +325,6 @@ impl Dataset for LsiCandidateDataset {
 
         let identity_hashmap = identity_response.plaintexts;
 
-        // let mut set = JoinSet::new();
-        // for identity in identity_number_encrypt_fetcher {
-        //     let client = self.grpc_service.ats_decryptor_grpc.clone(); // Pastikan clone-able
-        //     let cipher = identity.to_string();
-
-        //     set.spawn(async move { client.decrypt(DecryptRequest { ciphertext: cipher }).await });
-        // }
-
-        // // 2. Ambil hasilnya saat selesai (tidak harus berurutan)
-        // while let Some(res) = set.join_next().await {
-        //     match res {
-        //         Ok(Ok(decrypted)) => {
-        //             identity_number_encrypt_after_decrypt_vec.push(decrypted.plaintext);
-        //         }
-        //         Ok(Err(e)) => {
-        //             tracing::error!("gRPC decrypt error: {:?}", e);
-        //             identity_number_encrypt_after_decrypt_vec.push("-".to_string());
-        //         }
-        //         Err(e) => {
-        //             tracing::error!("Task paniced: {:?}", e);
-        //         }
-        //     }
-        // }
-
-        // for (identity, future) in identity_number_encrypt_fetcher.iter().zip(decryption_futures) {
-        //     let decrypted_identity = future.await?;
-        //     let plain_text = decrypted_identity.plaintext.to_string();
-        //     identity_number_encrypt_after_decrypt_vec.push(plain_text);
-        // }
-
-        // for identity in identity_number_encrypt_after_decrypt_vec.iter() {
-        //     let fetch = self
-        //         .grpc_service
-        //         .ats_decryptor_grpc
-        //         .decrypt(DecryptRequest {
-        //             ciphertext: identity.to_string(),
-        //         });
-        //     let decrypted_identity = fetch.await?;
-        //     let plain_text = decrypted_identity.plaintext.to_string();
-        //     identity_number_encrypt_after_decrypt_vec.push(plain_text);
-        // }
-        // let candidate_fetcher_data = candidate_fetcher.fetch(Some(candidate_filter)).await?;
-        // let education_fetcher_data = education_fetcher.fetch(Some(education_filter)).await?;
-        // let experient_fetcher_data = experient_fetcher.fetch(Some(experient_filter)).await?;
-        // let candidate_client_fetcher_data = candidate_field_fetcher
-        //     .fetch(Some(candidate_client_filter))
-        //     .await?;
-        // let vacancy_fetcher_data = vacancy_fetcher.fetch(Some(vacancy_filter)).await?;
 
         let vacancy_mapper_data: HashMap<String, String> = vacancy_fetcher_data
             .iter()
@@ -383,7 +334,7 @@ impl Dataset for LsiCandidateDataset {
                 (id.to_string(), name.to_string())
             })
             .collect();
-        self.mapper_custom_fileds(&mut map_custom_fields, &candidate_client_fetcher_data);
+        self.mapper_custom_fields(&mut map_custom_fields, &candidate_client_fetcher_data);
 
         debug!("CANDIDATE EXPERIENT : {:?}", experient_fetcher_data);
         debug!("CANDIDATE CLIENT : {:?}", candidate_client_fetcher_data);

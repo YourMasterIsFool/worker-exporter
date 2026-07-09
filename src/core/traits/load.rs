@@ -14,6 +14,9 @@ pub enum LoadEnum {
     Select(Option<Vec<WhereField>>, Option<Vec<String>>),
 }
 
+
+// checking if LoadEnum is select,
+
 impl LoadEnum {
     pub fn is_select(&self) -> bool {
         matches!(self, LoadEnum::Select(_, _))
