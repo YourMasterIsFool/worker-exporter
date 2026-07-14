@@ -61,9 +61,12 @@ RUN cargo build \
         --locked \
         --bin worker \
         --bin http \
+        --bin http_worker \
     && mkdir -p /out \
     && cp target/release/worker /out/worker \
-    && cp target/release/http /out/http
+    && cp target/release/http /out/http \
+    && cp target/release/http_worker /out/http_worker
+
 
 
 # ============================================================
@@ -98,6 +101,12 @@ COPY --from=builder \
     /out/http \
     /app/http
 
+COPY --from=builder \
+    --chown=appuser:appuser \
+    --chmod=755 \
+    /out/http_worker \
+    /app/http_worker
+
 USER appuser
 
-CMD ["/app/worker"]
+CMD ["/app/http_worker"]
