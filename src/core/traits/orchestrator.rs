@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterColumn {
     pub name: String,
@@ -62,6 +61,10 @@ pub struct ImporterColumn {
     pub fetcher: Option<String>,
     pub type_data: Option<TypeDataEnum>,
     pub is_custom: bool,
+    pub fetcher_field_filter: Option<String>, 
+    pub fetcher_field_key: Option<String>,
+    pub fetcher_key: Option<String>,
+    pub casting: Option<crate::core::types::CastingEnum>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -95,6 +98,11 @@ pub struct ImporterConfig {
     pub primary_column: String,
     pub sequential_table: Option<Vec<SequentialTable>>,
     pub fetcher_caching: Option<Vec<String>>,
+    
+    // start row for reading excel
+    // example start from row 1
+    pub start_row: Option<u64>,
+
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

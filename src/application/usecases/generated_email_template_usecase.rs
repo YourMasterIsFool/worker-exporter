@@ -1,7 +1,11 @@
 use std::{path::Path, sync::Arc, vec};
 
 use futures_util::future::try_join_all;
-use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
+use rust_xlsxwriter::{
+    DataValidation, Format, FormatAlign, FormatBorder, Formula, Workbook, Worksheet,
+};
+use serde::Deserialize;
+use serde_json::Value;
 
 use crate::{
     application::fetch_source_regitry::DataFetcherJsonRegistry,
@@ -10,6 +14,23 @@ use crate::{
 
 pub struct GeneratedEmailTemplateUsecase {
     pub fetcher: Arc<DataFetcherJsonRegistry>,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ValueType {
+    MultipleSelect,
+    Select,
+    Text,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ExampleValue {
+    pub value: Option<Value>,
+    #[serde(alias = "valueType")]
+    pub value_type: Option<ValueType>,
+    pub fetcher: Option<String>,
+    pub filter: Option<Vec<WhereField>>,
 }
 
 /// Representasi satu baris lookup table (id + name)
@@ -29,6 +50,7 @@ impl GeneratedEmailTemplateUsecase {
     pub async fn execute(
         &self,
         headers: &[String],
+        example_values: &[ExampleValue],
         file_path: &str,
         tenant_id: &str,
     ) -> anyhow::Result<()> {
@@ -42,14 +64,29 @@ impl GeneratedEmailTemplateUsecase {
         let mut workbook = Workbook::new();
 
         // ===== Sheet 1: main_import =====
-        let main_sheet = workbook.add_worksheet().set_name("main_import")?;
-        let header_format = Format::new()
-            .set_bold()
-            .set_border(FormatBorder::Thin)
-            .set_align(FormatAlign::Center);
+        {
+            let main_sheet = workbook.add_worksheet().set_name("main_import")?;
+            let header_format = Format::new()
+                .set_bold()
+                .set_border(FormatBorder::Thin)
+                .set_align(FormatAlign::Center);
+            let example_format = Format::new().set_border(FormatBorder::Thin);
 
-        for (col, header) in headers.iter().enumerate() {
-            main_sheet.write_string_with_format(0, col as u16, header, &header_format)?;
+            for (col, header) in headers.iter().enumerate() {
+                let column = col as u16;
+                main_sheet.write_string_with_format(0, column, header, &header_format)?;
+                main_sheet.set_column_width(
+                    column,
+                    (header.chars().count() as f64 + 2.0).clamp(14.0, 40.0),
+                )?;
+
+                if let Some(example) = example_values.get(col) {
+                    if let Some(value) = example.value.as_ref() {
+                        let value = example_value_to_string(value, example.value_type);
+                        main_sheet.write_string_with_format(1, column, &value, &example_format)?;
+                    }
+                }
+            }
         }
 
         // ===== Fetch data master =====
@@ -301,12 +338,13 @@ impl GeneratedEmailTemplateUsecase {
             let rows: Vec<LookupRow> = raw_data
                 .iter()
                 .map(|row| LookupRow {
-                    id: row.get("id").map(|f| f.to_string()).unwrap_or_default(),
+                    id: row.get("id").map(value_to_string).unwrap_or_default(),
                     name: row
                         .get(config.name_field)
-                        .map(|f| f.to_string())
+                        .map(value_to_string)
                         .unwrap_or_default(),
                 })
+                .filter(|row| !row.id.is_empty() && !row.name.is_empty())
                 .collect();
 
             // 3 kolom per tabel: ID (x), Name (x+1), Gap (x+2)
@@ -319,10 +357,158 @@ impl GeneratedEmailTemplateUsecase {
             master_sheet.set_column_width(start_col + 1, 22)?;
         }
 
+        // ===== Lookup dinamis dari example_value + dropdown di main_import =====
+        drop(master_sheet);
+        let dynamic_start = masters.len();
+        let mut validation_ranges = Vec::new();
+
+        for (header_index, example) in example_values.iter().enumerate() {
+            if !matches!(
+                example.value_type,
+                Some(ValueType::Select | ValueType::MultipleSelect)
+            ) {
+                continue;
+            }
+
+            let Some(fetcher_name) = example
+                .fetcher
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+
+            let fetcher = self.fetcher.get(fetcher_name)?;
+            let raw_data = fetcher.fetch(example.filter.clone()).await?;
+            let rows: Vec<LookupRow> = raw_data
+                .iter()
+                .map(|row| LookupRow {
+                    id: row.get("id").map(value_to_string).unwrap_or_default(),
+                    name: lookup_display_value(row, fetcher_name),
+                })
+                .filter(|row| !row.id.is_empty() && !row.name.is_empty())
+                .collect();
+
+            if rows.is_empty() {
+                continue;
+            }
+
+            let start_col = ((dynamic_start + header_index) * 3) as u16;
+            {
+                let master_sheet = workbook.worksheet_from_name("master_template")?;
+                write_lookup_table(master_sheet, start_col, fetcher_name, &rows)?;
+                master_sheet.set_column_width(start_col, 22)?;
+                master_sheet.set_column_width(start_col + 1, 28)?;
+            }
+
+            let range_name = format!("example_options_{header_index}");
+            let display_column = excel_column_name(start_col + 1);
+            workbook.define_name(
+                &range_name,
+                &format!(
+                    "='master_template'!${display_column}$3:${display_column}${}",
+                    rows.len() + 2
+                ),
+            )?;
+            validation_ranges.push((
+                header_index,
+                range_name,
+                matches!(example.value_type, Some(ValueType::MultipleSelect)),
+            ));
+        }
+
+        let main_sheet = workbook.worksheet_from_name("main_import")?;
+        for (header_index, range_name, is_multiple_select) in validation_ranges {
+            // Excel tidak mendukung native multi-select; multipleSelect tetap
+            // diberi dropdown single-select agar opsi tetap terlihat. Nilai
+            // multipleSelect dapat diisi manual sebagai "A,B".
+            let mut validation =
+                DataValidation::new().allow_list_formula(Formula::new(format!("={range_name}")));
+            if is_multiple_select {
+                // Excel's list validation sees "A,B" as one value and would
+                // reject it. The importer splits this value by comma, so do
+                // not block the valid multi-value input here.
+                validation = validation.show_error_message(false);
+            }
+            main_sheet.add_data_validation(
+                // Row 0 is the header. Row 1 is the first import row (the
+                // importer skips only the header), so validation must start
+                // there as well.
+                1,
+                header_index as u16,
+                1000,
+                header_index as u16,
+                &validation,
+            )?;
+        }
+
         workbook.save(file_path)?;
 
         Ok(())
     }
+}
+
+fn value_to_string(value: &Value) -> String {
+    match value {
+        Value::String(value) => value.clone(),
+        Value::Null => String::new(),
+        value => value.to_string(),
+    }
+}
+
+fn example_value_to_string(value: &Value, value_type: Option<ValueType>) -> String {
+    match value {
+        Value::Array(values) => values
+            .iter()
+            .map(|value| example_value_to_string(value, value_type))
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::String(value) if matches!(value_type, Some(ValueType::MultipleSelect)) => value
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(","),
+        value => value_to_string(value),
+    }
+}
+
+fn lookup_display_value(row: &Value, fetcher_name: &str) -> String {
+    let preferred_fields: &[&str] = match fetcher_name.to_uppercase().as_str() {
+        "JOB_POSITION" => &["position_name", "name"],
+        "EMPLOYEE" => &["full_name", "name"],
+        "STAGE_TEMPLATE" | "REQUIREMENT_STAGE_TEMPLATE" => &["template_name", "name"],
+        "ONBOARDING_TEMPLATE" => &["group_name", "name"],
+        "FORM_FIELD" => &["name", "key_field", "label"],
+        _ => &[
+            "name",
+            "label",
+            "title",
+            "full_name",
+            "template_name",
+            "code",
+        ],
+    };
+
+    preferred_fields
+        .iter()
+        .find_map(|field| row.get(*field).map(value_to_string))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+fn excel_column_name(mut column: u16) -> String {
+    let mut name = String::new();
+    loop {
+        name.insert(0, (b'A' + (column % 26) as u8) as char);
+        if column < 26 {
+            break;
+        }
+        column = column / 26 - 1;
+    }
+    name
 }
 
 /// Menulis satu tabel lookup (title merged 2 kolom, header id/name, lalu data)

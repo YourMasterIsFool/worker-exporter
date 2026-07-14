@@ -97,6 +97,8 @@ impl DynamicDatasetV1 {
         &self,
         value: &str,
         fetcher_name: &str,
+        fetcher_field_key: &str,
+        casting: Option<CastingEnum>,
         use_cache: bool,
         cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<Option<serde_json::Value>> {
@@ -119,9 +121,9 @@ impl DynamicDatasetV1 {
 
         // 2. Jika cache miss atau tidak masuk whitelist, fetch asli ke DB/gRPC
         let filter = vec![WhereField {
-            field: "id".into(),
+            field: fetcher_field_key.to_string(),
             operator: "=".into(),
-            casting: Some(CastingEnum::Uuid),
+            casting,
             values: Some(vec![clean_value.into()]), // Gunakan clean_value
             value: None,
         }];
@@ -137,7 +139,7 @@ impl DynamicDatasetV1 {
             // 3. Simpan ke cache jika fetcher ini terdaftar di whitelist payload
             if use_cache {
                 tracing::info!("💾 Menyimpan ke cache lokal: {}", cache_key);
-                self.local_cache.insert(cache_key, hit_row.clone()).await;
+                cache.insert(cache_key, hit_row.clone()).await;
             }
             return Ok(Some(hit_row));
         }
@@ -247,19 +249,48 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
 
             if let Some(fetcher_name) = &field.fetcher {
                 let use_cache = cache_whitelist.contains(fetcher_name);
+                let fetcher_field_key = field
+                    .fetcher_field_key
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("id");
+                let fetcher_key = field
+                    .fetcher_key
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("id");
+                let casting = field.casting.clone().or_else(|| {
+                    fetcher_field_key
+                        .eq_ignore_ascii_case("id")
+                        .then_some(CastingEnum::Uuid)
+                });
                 tracing::info!("using is cache {}", use_cache);
                 if !raw_tokens.is_empty() {
-                    let fetch_futures = raw_tokens
-                        .iter()
-                        .map(|token| self.resolve_fetcher(token, fetcher_name, use_cache, cache));
+                    let fetch_futures = raw_tokens.iter().map(|token| {
+                        self.resolve_fetcher(
+                            token,
+                            fetcher_name,
+                            fetcher_field_key,
+                            casting.clone(),
+                            use_cache,
+                            cache,
+                        )
+                    });
 
                     let fetch_results = join_all(fetch_futures).await;
 
                     for (idx, res) in fetch_results.into_iter().enumerate() {
                         match res {
                             Ok(Some(meta_obj)) => {
+                                resolved_clean_values.push(
+                                    meta_obj
+                                        .get(fetcher_key)
+                                        .cloned()
+                                        .unwrap_or_else(|| Value::String(raw_tokens[idx].clone())),
+                                );
                                 resolved_meta_list.push(meta_obj);
-                                resolved_clean_values.push(Value::String(raw_tokens[idx].clone()));
                             }
                             Ok(None) => {
                                 tracing::warn!(

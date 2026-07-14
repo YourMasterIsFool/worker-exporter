@@ -17,8 +17,15 @@ pub struct WhereField {
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub enum CastingEnum {
+    #[serde(alias = "uuid")]
     Uuid,
+    #[serde(alias = "varchar")]
     Varchar,
+    #[serde(alias = "date")]
+    Date,
+    #[serde(alias = "number")]
+    Number,
+    #[serde(rename = "Enum", alias = "enum")]
     Enum(String),
 }
 
@@ -28,6 +35,8 @@ impl CastingEnum {
             CastingEnum::Uuid => "uuid",
             CastingEnum::Varchar => "varchar",
             CastingEnum::Enum(enum_str) => enum_str.as_str(),
+            CastingEnum::Date => "date",
+            CastingEnum::Number => "number",
         }
     }
 }

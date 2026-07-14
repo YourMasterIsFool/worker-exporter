@@ -200,6 +200,34 @@ impl LsiImportVacancyV1 {
             .fields
             .into_iter()
             .map(|mut field| {
+                if field.fetcher.is_some() {
+                    let fetcher_field_key = field
+                        .fetcher_field_key
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("id")
+                        .to_string();
+
+                    field.fetcher_field_key = Some(fetcher_field_key.clone());
+                    field.fetcher_key = Some(
+                        field
+                            .fetcher_key
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or("id")
+                            .to_string(),
+                    );
+                    field.casting = field.casting.or_else(|| {
+                        if fetcher_field_key.eq_ignore_ascii_case("id") {
+                            Some(CastingEnum::Uuid)
+                        } else {
+                            Some(CastingEnum::Varchar)
+                        }
+                    });
+                }
+
                 let groups = field
                     .column
                     .split('|')
@@ -215,6 +243,76 @@ impl LsiImportVacancyV1 {
             })
             .collect();
         cloned
+    }
+
+    fn normalize_number_value(value: Value) -> anyhow::Result<Value> {
+        match value {
+            Value::String(text) => {
+                let text = text.trim();
+                if text.is_empty() {
+                    return Ok(Value::Null);
+                }
+
+                if let Ok(integer) = text.parse::<i64>() {
+                    return Ok(Value::from(integer));
+                }
+
+                if let Ok(decimal) = text.parse::<f64>() {
+                    return serde_json::Number::from_f64(decimal)
+                        .map(Value::Number)
+                        .ok_or_else(|| anyhow::anyhow!("nilai NUMBER '{}' tidak valid", text));
+                }
+
+                Err(anyhow::anyhow!("nilai NUMBER '{}' tidak valid", text))
+            }
+            Value::Array(values) => values
+                .into_iter()
+                .map(Self::normalize_number_value)
+                .collect::<anyhow::Result<Vec<_>>>()
+                .map(Value::Array),
+            value => Ok(value),
+        }
+    }
+
+    fn normalize_numeric_columns(
+        &self,
+        config: &ImportDatasetConfig,
+        result: &mut HashMap<String, ImportTableResult>,
+    ) -> anyhow::Result<()> {
+        for field in &config.import_config.fields {
+            if !matches!(
+                field.type_data,
+                Some(crate::core::traits::orchestrator::TypeDataEnum::Number)
+            ) {
+                continue;
+            }
+
+            for group in field.column.split('|') {
+                let Some((table, column)) = Self::parse_table_column_path(group) else {
+                    continue;
+                };
+
+                let Some(table_result) = result.get_mut(table) else {
+                    continue;
+                };
+
+                let Some(column_index) = table_result
+                    .columns
+                    .iter()
+                    .position(|value| value == column)
+                else {
+                    continue;
+                };
+
+                for row in &mut table_result.values {
+                    if let Some(value) = row.get_mut(column_index) {
+                        *value = Self::normalize_number_value(std::mem::take(value))?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn extract_master_id(
@@ -882,6 +980,8 @@ impl ImporterDatasetV1 for LsiImportVacancyV1 {
             .dynamic_dataset
             .import(rows, &base_config, cache)
             .await?;
+
+        self.normalize_numeric_columns(config, &mut result)?;
 
         self.append_config_scope_columns(config, &mut result)?;
         self.append_main_payload_columns(config, &mut result)?;

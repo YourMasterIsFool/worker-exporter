@@ -1,0 +1,324 @@
+{
+  "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+  "email": "verrandyb@gmail.com",
+  "actor_id": "vearara",
+  "orchestrator_name": "IMPORT",
+  "export_config": null,
+  "ingestion_config": null,
+  "import_config": {
+    "main_filterable": [
+      {
+        "main_column": "warehouse.ats_vacancy_custom_field:noRR",
+        "import_column": "customFields.noRR"
+      }
+    ],
+    "main_searchable": ["warehouse.ats_vacancy_custom_field:noRR"],
+    "loader": "WAREHOUSE_ATS_VACANCY_TEMPORARY",
+    "chunk": 1,
+    "tenant_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+    "group_id": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd",
+    "dataset": "LSI_IMPORT_VACANCY_V1",
+    "master_table": "warehouse.ats_vacancy_temporary",
+    "primary_column": "id",
+    "auto_sync": false,
+    "fetcher_caching": [
+      "JOB_LEVEL",
+      "JOB_GRADE",
+      "MASTER_GEO",
+      "MASTER_ITEMS",
+      "ORGANIZATION",
+      "EMPLOYEE",
+      "ATTEDANCE_LOCATION"
+    ],
+    "sequential_table": [
+      {
+        "table": "warehouse.ats_vacancy_custom_field",
+        "is_custom": true,
+        "fk_column": "parent_id"
+      },
+      {
+        "table": "warehouse.ats_vacancy_pic",
+        "is_custom": false,
+        "fk_column": "vacancy_id"
+      },
+      {
+        "table": "warehouse.ats_vacancy_stage",
+        "is_custom": false,
+        "fk_column": "vacancy_id"
+      },
+      {
+        "table": "warehouse.ats_vacancy_requirement",
+        "is_custom": false,
+        "fk_column": "vacancy_id"
+      }
+    ],
+    "key": "v6/HRMS/019e95a5-f5f3-7dd8-952b-0ce16845d9bd/document/20260713-ba645aed-789e-49c1-b2d6-817e6410fa92-template_excel.xlsx",
+    "data_source_type": "stream",
+    "pipeline": "vacancy_import_pipeline",
+    "fields": [
+      {
+        "header": "No RR*",
+        "column": "warehouse.ats_vacancy_custom_field:noRR",
+        "fetcher": null,
+        "type_data": "TEXT",
+        "is_custom": true,
+        "template": { "value": "test", "value_type": "text", "fetcher": null }
+      },
+      {
+        "header": "Position Name*",
+        "column": "warehouse.ats_vacancy_temporary:job_position_id|warehouse.ats_vacancy_temporary:job_position_meta",
+        "fetcher": "JOB_POSITION",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "position_name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "JOB_POSITION", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Position Alias*",
+        "column": "warehouse.ats_vacancy_temporary:name",
+        "fetcher": null,
+        "type_data": "TEXT",
+        "is_custom": false,
+        "template": { "value": "test", "value_type": "text", "fetcher": null }
+      },
+      {
+        "header": "PIC*",
+        "column": "warehouse.ats_vacancy_pic:employee_id|warehouse.ats_vacancy_pic:employee_meta",
+        "fetcher": "EMPLOYEE",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "email",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "multipleSelect", "fetcher": "EMPLOYEE", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "District",
+        "column": "warehouse.ats_vacancy_custom_field:districtId",
+        "fetcher": "MASTER_ITEMS",
+        "type_data": "UUID",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "MASTER_GEO", "filter": [{ "field": "level", "operator": "=", "value": "adm4", "values": null, "casting": { "Enum": "geo_nodes_level_enum" } }] }
+      },
+      {
+        "header": "Region",
+        "column": "warehouse.ats_vacancy_custom_field:regionId",
+        "fetcher": "MASTER_ITEMS",
+        "type_data": "UUID",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "MASTER_ITEMS", "filter": [{ "field": "category_id", "operator": "=", "value": "019eab84-3b62-70ee-8574-f13596ccce55", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Province*",
+        "column": "warehouse.ats_vacancy_temporary:province_id|warehouse.ats_vacancy_temporary:province_meta|warehouse.ats_vacancy_custom_field:province_id",
+        "fetcher": "MASTER_GEO",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "MASTER_GEO", "filter": [{ "field": "level", "operator": "=", "value": "adm1", "values": null, "casting": { "Enum": "geo_nodes_level_enum" } }] }
+      },
+      {
+        "header": "City*",
+        "column": "warehouse.ats_vacancy_temporary:city_id|warehouse.ats_vacancy_temporary:city_meta|warehouse.ats_vacancy_custom_field:city_id",
+        "fetcher": "MASTER_GEO",
+        "type_data": "UUID",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "MASTER_GEO", "filter": [{ "field": "level", "operator": "=", "value": "adm2", "values": null, "casting": { "Enum": "geo_nodes_level_enum" } }] }
+      },
+      {
+        "header": "Work Location Group*",
+        "column": "warehouse.ats_vacancy_custom_field:workLocationGroupId",
+        "fetcher": "MASTER_ITEMS",
+        "type_data": "UUID",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "MASTER_ITEMS", "filter": [{ "field": "category_id", "operator": "=", "value": "019eab85-f0a2-76d6-8ce3-3ec87465ef6c", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Work Location*",
+        "column": "warehouse.ats_vacancy_temporary:work_location_id|warehouse.ats_vacancy_temporary:work_location_meta",
+        "fetcher": "ATTEDANCE_LOCATION",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "ATTEDANCE_LOCATION", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Employee Status*",
+        "column": "warehouse.ats_vacancy_temporary:employment_status_id|warehouse.ats_vacancy_temporary:employment_status_meta",
+        "fetcher": "EMPLOYMENT_STATUS",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "EMPLOYMENT_STATUS", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Job Grade*",
+        "column": "warehouse.ats_vacancy_custom_field:jobGradeId",
+        "fetcher": "JOB_GRADE",
+        "type_data": "UUID",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "JOB_GRADE", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Job Level*",
+        "column": "warehouse.ats_vacancy_custom_field:jobLevelId",
+        "fetcher": "JOB_LEVEL",
+        "type_data": "UUID",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "JOB_LEVEL", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Organization Unit*",
+        "column": "warehouse.ats_vacancy_temporary:organization_id|warehouse.ats_vacancy_temporary:organization_meta",
+        "fetcher": "ORGANIZATION",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "ORGANIZATION", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Min Salary",
+        "column": "warehouse.ats_vacancy_temporary:salary_min",
+        "type_data": "NUMBER",
+        "is_custom": false,
+        "template": { "value": "300000", "value_type": "text" }
+      },
+      {
+        "header": "Max Salary",
+        "column": "warehouse.ats_vacancy_temporary:salary_max",
+        "type_data": "NUMBER",
+        "is_custom": false,
+        "template": { "value": "400000", "value_type": "text" }
+      },
+      {
+        "header": "Vacancy Status*",
+        "column": "warehouse.ats_vacancy_custom_field:vacancyType",
+        "fetcher": null,
+        "type_data": "TEXT",
+        "is_custom": true,
+        "template": { "value": "test", "value_type": "text", "fetcher": null }
+      },
+      {
+        "header": "Approve Date",
+        "column": "warehouse.ats_vacancy_custom_field:approveDate",
+        "fetcher": null,
+        "type_data": "DATE",
+        "is_custom": true,
+        "template": { "value": "test", "value_type": "text", "fetcher": null }
+      },
+      {
+        "header": "Job Objective*",
+        "column": "warehouse.ats_vacancy_custom_field:jobDescriptionObjective",
+        "fetcher": null,
+        "type_data": "TEXT",
+        "is_custom": true,
+        "template": { "value": "test", "value_type": "text", "fetcher": null }
+      },
+      {
+        "header": "Responsibility*",
+        "column": "warehouse.ats_vacancy_custom_field:taskResponsibilityOther",
+        "fetcher": null,
+        "type_data": "TEXT",
+        "is_custom": true,
+        "template": { "value": "test", "value_type": "text", "fetcher": null }
+      },
+      {
+        "header": "C&A Template*",
+        "column": "warehouse.ats_vacancy_temporary:pre_onboarding_template_id",
+        "fetcher": "ONBOARDING_TEMPLATE",
+        "type_data": "TEXT",
+        "is_custom": false,
+        "fetcher_field_key": "group_name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "ONBOARDING_TEMPLATE", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Reason*",
+        "column": "warehouse.ats_vacancy_custom_field:reasonId",
+        "fetcher": "MASTER_ITEMS",
+        "type_data": "UUID",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "MASTER_ITEMS", "filter": [{ "field": "category_id", "operator": "=", "value": "019eb048-2c6c-7141-b9f4-3c119be106cf", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "SLA*",
+        "column": "warehouse.ats_vacancy_custom_field:sla",
+        "fetcher": "MASTER_ITEMS",
+        "type_data": "TEXT",
+        "is_custom": true,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "MASTER_ITEMS", "filter": [{ "field": "category_id", "operator": "=", "value": "019eab87-6bca-78f9-bb2b-e542571d4c98", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Total Number of Headcount Requested*",
+        "column": "warehouse.ats_vacancy_temporary:total_vacan",
+        "fetcher": null,
+        "type_data": "NUMBER",
+        "is_custom": false,
+        "casting": "number",
+        "template": { "value": "20", "value_type": "text", "fetcher": null }
+      },
+      {
+        "header": "Stage Template",
+        "column": "warehouse.ats_vacancy_stage:requirement_stage_template_id",
+        "fetcher": "STAGE_TEMPLATE",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "template_name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "STAGE_TEMPLATE", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      },
+      {
+        "header": "Requirement Template",
+        "column": "warehouse.ats_vacancy_temporary:recruitment_form_template_id",
+        "fetcher": "REQUIREMENT_TEMPLATE",
+        "type_data": "UUID",
+        "is_custom": false,
+        "fetcher_field_key": "name",
+        "fetcher_key": "id",
+        "casting": "varchar",
+        "template": { "value": null, "value_type": "select", "fetcher": "REQUIREMENT_TEMPLATE", "filter": [{ "field": "tenant_id", "operator": "=", "value": "019e95a5-f5f3-7dd8-952b-0ce16845d9bd", "values": null, "casting": "Uuid" }] }
+      }
+    ]
+  },
+  "sync_config": {
+    "sync_aggregate": "LSI_VACANCY_SYNC",
+    "chunk": 1,
+    "logging_id": null
+  }
+}

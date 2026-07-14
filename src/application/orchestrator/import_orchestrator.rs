@@ -1,11 +1,9 @@
-use calamine::{open_workbook_auto, open_workbook_auto_from_rs, DataType, Reader};
+use calamine::{open_workbook_auto_from_rs, DataType, Reader};
 use moka::future::Cache;
 use std::collections::{HashMap, HashSet};
 use std::result;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument};
 use tracing_subscriber::field;
 use tracing_subscriber::fmt::format;
@@ -20,7 +18,6 @@ use crate::core::traits::dataset_trait::{ImporterDataset, ImporterDatasetV1};
 use crate::core::traits::etl::DataFetcherJson;
 // 🔥 Pastikan mengimpor ImporterDatasetV1
 use crate::core::traits::load::{self, ImportLoadPersitence, IncrementalLoadPersitence};
-use crate::core::traits::orchestrator::ImporterColumn;
 use crate::core::traits::pipeline::pipeline_trait::PipelineImport;
 use crate::core::traits::publisher::Publisher;
 use crate::core::types::{
@@ -38,9 +35,8 @@ use crate::{
     application::grpcs::gprc::GrpcService,
     core::traits::orchestrator::{Orchestrator, OrchestratorJob},
 };
-use futures_util::StreamExt;
 use serde_json::{json, Value};
-use std::io::Cursor; // 🔥 Diperlukan untuk byte_stream.next()
+use std::io::Cursor;
 
 pub struct ImportOrchestrator {
     pub grpc_service: Arc<GrpcService>,
@@ -145,8 +141,13 @@ impl ImportOrchestrator {
         raw_rows: &[&[calamine::Data]], // 🔥 PERBAIKAN 1: Menggunakan calamine::Data (ini tipe enum konkretnya)
         dataset_config: &ImportDatasetConfig,
     ) -> anyhow::Result<()> {
-        // 1. Kumpulkan token yang Cache Miss berdasarkan nama Fetcher
-        let mut missing_fetcher_keys: HashMap<String, HashSet<(String, String)>> = HashMap::new();
+        // 1. Kumpulkan token yang Cache Miss berdasarkan konfigurasi fetcher.
+        // Fetcher yang sama dapat dipakai oleh beberapa kolom dengan field/key
+        // yang berbeda, sehingga konfigurasi tersebut menjadi bagian dari key map.
+        let mut missing_fetcher_keys: HashMap<
+            (String, String, String),
+            (HashSet<(String, String)>, Option<CastingEnum>),
+        > = HashMap::new();
 
         // 🔥 PERBAIKAN 2: Gunakan `.fields` karena field `.fetchers` tidak eksis di ImporterConfig Anda
         // Loop isi array fields untuk mencari mana kolom yang butuh fetcher
@@ -157,6 +158,21 @@ impl ImportOrchestrator {
                 Some(name) if !name.trim().is_empty() => name.trim().to_string(),
                 _ => continue, // Jika kolom ini tidak pakai fetcher, skip!
             };
+
+            let fetcher_field_key = field_cfg
+                .fetcher_field_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|field| !field.is_empty())
+                .unwrap_or("id")
+                .to_string();
+            let fetcher_key = field_cfg
+                .fetcher_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|field| !field.is_empty())
+                .unwrap_or("id")
+                .to_string();
 
             // Jika Anda memakai index eksplisit dari config gunakan itu,
             // jika tidak, gunakan `col_idx` dari posisi urutan array.
@@ -174,14 +190,18 @@ impl ImportOrchestrator {
 
                     let token_string = raw_token.trim().to_string();
                     if !token_string.is_empty() {
-                        let clean_fetcher = fetcher_name.clone();
+                        let clean_fetcher = fetcher_name.to_uppercase();
                         let cache_key = format!("{}:{}", clean_fetcher, token_string);
 
                         if !self.local_cache.contains_key(&cache_key) {
-                            missing_fetcher_keys
-                                .entry(fetcher_name.clone())
-                                .or_default()
-                                .insert((token_string, cache_key));
+                            let entry = missing_fetcher_keys
+                                .entry((
+                                    fetcher_name.clone(),
+                                    fetcher_field_key.clone(),
+                                    fetcher_key.clone(),
+                                ))
+                                .or_insert_with(|| (HashSet::new(), field_cfg.casting.clone()));
+                            entry.0.insert((token_string, cache_key));
                         }
                     }
                 }
@@ -189,7 +209,11 @@ impl ImportOrchestrator {
         }
 
         // 2. Eksekusi Bulk Fetcher
-        for (fetcher_name, tokens_and_keys) in missing_fetcher_keys {
+        for (
+            (fetcher_name, fetcher_field_key, fetcher_key),
+            (tokens_and_keys, configured_casting),
+        ) in missing_fetcher_keys
+        {
             if tokens_and_keys.is_empty() {
                 continue;
             }
@@ -208,9 +232,13 @@ impl ImportOrchestrator {
             })?;
 
             let filter = vec![WhereField {
-                field: "id".into(),
+                casting: configured_casting.or_else(|| {
+                    fetcher_field_key
+                        .eq_ignore_ascii_case("id")
+                        .then_some(CastingEnum::Uuid)
+                }),
+                field: fetcher_field_key.clone(),
                 operator: "=".into(),
-                casting: Some(CastingEnum::Uuid),
                 values: Some(tokens_vec),
                 value: None,
             }];
@@ -218,13 +246,23 @@ impl ImportOrchestrator {
             let rows = fetcher.fetch(Some(filter)).await?;
 
             for hit_row in rows {
-                if let Some(id_val) = hit_row.get("id") {
-                    if let Some(id_str) = id_val.as_str() {
-                        let clean_fetcher = fetcher_name.to_uppercase();
-                        let cache_key = format!("{}:{}", clean_fetcher, id_str.trim());
+                let cache_values = [&fetcher_key, &fetcher_field_key]
+                    .into_iter()
+                    .filter_map(|field| hit_row.get(field))
+                    .filter_map(|value| match value {
+                        Value::String(value) if !value.trim().is_empty() => {
+                            Some(value.trim().to_string())
+                        }
+                        Value::Null => None,
+                        value => Some(value.to_string()),
+                    })
+                    .collect::<HashSet<_>>();
 
-                        self.local_cache.insert(cache_key, hit_row.clone()).await;
-                    }
+                for fetcher_value in cache_values {
+                    let clean_fetcher = fetcher_name.to_uppercase();
+                    let cache_key = format!("{}:{}", clean_fetcher, fetcher_value);
+
+                    self.local_cache.insert(cache_key, hit_row.clone()).await;
                 }
             }
         }
@@ -241,35 +279,20 @@ impl ImportOrchestrator {
         dataset_config: &ImportDatasetConfig,
         import_load_registry: &dyn ImportLoadPersitence,
     ) -> anyhow::Result<()> {
-        let _ = url;
         let _ = import_pipeline;
 
-        // Sementara matikan alur stream S3.
-        let response = reqwest::get(url).await?;
-        let mut byte_stream = response.bytes_stream();
-        let tmp_file_path = format!("/tmp/import_{}.xlsx", logging_id);
-        let mut tmp_file = File::create(&tmp_file_path).await?;
-        tracing::info!(
-            logging_id = logging_id,
-            "Memulai streaming download dari S3 ke disk lokal..."
-        );
-        while let Some(chunk_result) = byte_stream.next().await {
-            let chunk = chunk_result?;
-            tmp_file.write_all(&chunk).await?;
-        }
-        tmp_file.flush().await?;
-        drop(tmp_file);
-
-        // let tmp_file_path = "template_excel_vacancy.xlsx";
+        let response = reqwest::get(url).await?.error_for_status()?;
+        let bytes = response.bytes().await?;
 
         tracing::info!(
             logging_id = logging_id,
-            file = tmp_file_path,
-            "Mode stream sementara baca file lokal dari root project."
+            url = url,
+            bytes = bytes.len(),
+            "Membuka workbook import dari response download."
         );
 
-        let mut workbook = calamine::open_workbook_auto(tmp_file_path).map_err(|err| {
-            tracing::error!("Gagal membuka workbook lokal: {}", err);
+        let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes)).map_err(|err| {
+            tracing::error!("Gagal membuka workbook dari response: {}", err);
             err
         })?;
 
@@ -279,7 +302,10 @@ impl ImportOrchestrator {
         let chunk_limit = dataset_config.import_config.chunk as usize;
 
         let mut raw_row_buffer = vec![];
-        let mut row_iter = range.rows().skip(1);
+        // `start_row` menggunakan nomor baris Excel (1-based). Default mulai
+        // dari baris 2 agar baris pertama yang biasanya berisi header dilewati.
+        let start_row = dataset_config.import_config.start_row.unwrap_or(2);
+        let mut row_iter = range.rows().skip(start_row.saturating_sub(1) as usize);
 
         loop {
             raw_row_buffer.clear();
@@ -347,14 +373,14 @@ impl ImportOrchestrator {
         dataset_config: &ImportDatasetConfig,
         import_load_registry: &dyn ImportLoadPersitence,
     ) -> anyhow::Result<()> {
-        let response = reqwest::get(url).await?;
+        let response = reqwest::get(url).await?.error_for_status()?;
         info!("logging id {}", logging_id);
 
-        let bytes = std::fs::read("template_excel_vacancy.xlsx")?;
+        let bytes = response.bytes().await?;
         let cursor = Cursor::new(bytes);
 
         let mut workbook = open_workbook_auto_from_rs(cursor).map_err(|err| {
-            tracing::error!("error open workbook {}", err);
+            tracing::error!("error open workbook from response {}", err);
             err
         })?;
 
@@ -363,7 +389,10 @@ impl ImportOrchestrator {
 
         let chunk_limit = dataset_config.import_config.chunk as usize;
         let mut raw_row_buffer = vec![];
-        let mut row_iter = range.rows().skip(1);
+        // `start_row` menggunakan nomor baris Excel (1-based). Default mulai
+        // dari baris 2 agar baris pertama yang biasanya berisi header dilewati.
+        let start_row = dataset_config.import_config.start_row.unwrap_or(2);
+        let mut row_iter = range.rows().skip(start_row.saturating_sub(1) as usize);
 
         loop {
             raw_row_buffer.clear();

@@ -1,4 +1,7 @@
-use crate::{app_state::AppState, errors::AppError};
+use crate::{
+    app_state::AppState, application::usecases::generated_email_template_usecase::ExampleValue,
+    errors::AppError,
+};
 use axum::{
     body::Body,
     extract::State,
@@ -13,7 +16,10 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 pub struct PayloadGeneratedImportTemplate {
     pub headers: Vec<String>,
+    #[serde(alias = "tenantId")]
     pub tenant_id: String,
+    #[serde(default, alias = "exampleValue", alias = "example_values")]
+    pub example_value: Vec<ExampleValue>,
 }
 
 pub async fn generated_import_template_http(
@@ -25,7 +31,12 @@ pub async fn generated_import_template_http(
     let file_path = format!("excel/{}.xlsx", Uuid::now_v7());
 
     let result = usecase
-        .execute(&payload.headers, &file_path, &payload.tenant_id)
+        .execute(
+            &payload.headers,
+            &payload.example_value,
+            &file_path,
+            &payload.tenant_id,
+        )
         .await;
 
     // Cek result DULU sebelum baca file
