@@ -42,6 +42,12 @@ ask_required() {
   printf '%s' "$value"
 }
 
+ask_optional() {
+  printf '%s' "$1" >&2
+  IFS= read -r answer
+  printf '%s' "$answer"
+}
+
 ask_scope_part() {
   prompt="$1"
   default_value="$2"
@@ -186,8 +192,12 @@ ask_conventional_commit
 domain="$(ask_scope_part 'Nama Domain: (default WORKER) ' 'WORKER')"
 ticket="$(ask_scope_part 'Nama Ticket(TECHS-001): ' '')"
 title="$(ask_required 'title: ')"
-description="$(ask_required 'Description: ')"
-message="${commit_type}${icon}(${domain}:${ticket}): ${title} - ${description}"
+description="$(ask_optional 'Description (optional): ')"
+message="${commit_type}${icon}(${domain}:${ticket}): ${title}"
+
+if [ -n "$description" ]; then
+  message="$message - $description"
+fi
 
 printf '%s\n' "$message" > "$message_file"
 printf '\nCommit message:\n%s\n\n' "$message"

@@ -601,6 +601,16 @@ impl LsiImportVacancyV1 {
             }
         }
 
+        if let Some(permission_key) = &config.import_config.permission_key {
+
+            // mapping data to value array because data is serde_json::value
+
+            let mapping_to_value_array = Value::Array(permission_key.iter().map(|f| Value::String(f.to_string())).collect());
+
+            // insert permission_key 
+            self.upsert_main_value(result, master_table, "permission_keys", mapping_to_value_array);
+        }
+
         Ok(())
     }
 

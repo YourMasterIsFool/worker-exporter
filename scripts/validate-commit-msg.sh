@@ -14,7 +14,7 @@ case "$first_line" in
     ;;
 esac
 
-if printf '%s\n' "$first_line" | grep -Eq '^(feat✨|fix🐛|docs📝|style💄|refactor♻️|perf⚡|test✅|build🏗️|ci👷|chore🔧|revert⏪)\([A-Z0-9_-]+:[A-Z0-9_-]+\): .+ - .+$'; then
+if printf '%s\n' "$first_line" | grep -Eq '^(feat✨|fix🐛|docs📝|style💄|refactor♻️|perf⚡|test✅|build🏗️|ci👷|chore🔧|revert⏪)\([A-Z0-9_-]+:[A-Z0-9_-]+\): .+( - .+)?$'; then
   exit 0
 fi
 
@@ -22,6 +22,8 @@ cat >&2 <<'EOF'
 
 Format commit message tidak valid.
 Gunakan format:
+  fix🐛(WORKER:TECHS-001): title
+atau:
   fix🐛(WORKER:TECHS-001): title - description
 
 Jalankan `git commit` tanpa `-m` untuk memakai prompt otomatis.

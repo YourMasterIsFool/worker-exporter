@@ -102,6 +102,9 @@ pub struct ImporterConfig {
     // start row for reading excel
     // example start from row 1
     pub start_row: Option<u64>,
+    pub permission_key: Option<Vec<String>>
+
+
 
 }
 
@@ -110,6 +113,7 @@ pub struct OrchestratorJob {
     pub(crate) tenant_id: String,
     pub(crate) email: String,
     pub(crate) actor_id: String,
+    pub(crate)permissions_key: Option<Vec<String>>,
 
     pub(crate) orchestrator_name: String,
     pub(crate) export_config: Option<ExporterConfig>,
