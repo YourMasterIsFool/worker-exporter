@@ -49,7 +49,6 @@ pub fn init_logger() {
     let _ = tracing_subscriber::registry()
         .with(filter)
         .with(fmt::layer().with_target(false))
-        .with(tracing_tracy::TracyLayer::default())
         .try_init();
 }
 

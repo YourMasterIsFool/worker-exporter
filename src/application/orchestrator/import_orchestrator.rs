@@ -14,7 +14,7 @@ use crate::application::fetch_source_regitry::DataFetcherJsonRegistry;
 use crate::application::import::import_registry::ImportLoaderRegistry;
 use crate::application::loader_registry::LoaderRegistry;
 use crate::application::pipelines::pipeline_import_registry::PipelineImportRegistry;
-use crate::core::traits::dataset_trait::{ImporterDataset, ImporterDatasetV1};
+use crate::core::traits::dataset_trait::{ ImporterDatasetV1};
 use crate::core::traits::etl::DataFetcherJson;
 // 🔥 Pastikan mengimpor ImporterDatasetV1
 use crate::core::traits::load::{self, ImportLoadPersitence, IncrementalLoadPersitence};
@@ -77,6 +77,7 @@ impl ImportOrchestrator {
             import_config: None,
             sync_config: Some(sync_config),
             filters: job.filters.clone(),
+            permissions_key: job.permissions_key.clone(),
         };
 
         let payload = serde_json::to_value(&sync_job)?;

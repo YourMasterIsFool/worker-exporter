@@ -10,10 +10,10 @@ use worker_exporter::boostrap::bootstrap;
 use worker_exporter::core::traits::consumer::{Consumer, ConsumerMessage};
 use worker_exporter::core::traits::handler::JobHandler;
 use worker_exporter::infrastructure::redis::RedisStreamConsumer;
-// Tambahkan import ini untuk mengaktifkan try_init
-#[cfg(not(feature = "dhat-heap"))]
+#[cfg(all(feature = "jemalloc", not(feature = "dhat-heap")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
