@@ -23,6 +23,7 @@ docker-compose*.yaml
 
 # Local tooling and IDE files
 /.codex
+/.codex-plugins
 /.continue/
 /.agents/
 /.idea/
