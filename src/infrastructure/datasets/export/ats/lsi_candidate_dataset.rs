@@ -374,31 +374,31 @@ impl Dataset for LsiCandidateDataset {
             vacancy_fetcher.fetch(Some(vacancy_filter)).await?
         };
 
-        let identity_ciphertexts = candidate_fetcher_data
+        let pii_ciphertexts = candidate_fetcher_data
             .iter()
-            .map(|c| {
-                c.get("identity_number_encrypt")
-                    .and_then(|v| v.as_str())
+            .flat_map(|candidate| {
+                ["identity_number_encrypt", "dob", "domicile_street"]
+                    .into_iter()
+                    .filter_map(|field| candidate.get(field).and_then(|v| v.as_str()))
+                    .filter(|value| !value.is_empty() && *value != "-")
                     .map(str::to_owned)
-                    .unwrap_or_default()
             })
-            .filter(|value| !value.is_empty())
             .collect::<Vec<_>>();
 
         tracing::info!(
             candidates = candidate_fetcher_data.len(),
-            identity_ciphertexts = identity_ciphertexts.len(),
-            "Preparing candidate PII decryption (dob/nik/ktp fields are handled as values)"
+            pii_ciphertexts = pii_ciphertexts.len(),
+            "Preparing candidate PII decryption"
         );
         let ats_decryptor_grpc = self.grpc_service.ats_decryptor_grpc.clone();
 
-        let identity_response = ats_decryptor_grpc
+        let pii_response = ats_decryptor_grpc
             .batch_decrypt(DecryptBatchRequest {
-                ciphertexts: identity_ciphertexts,
+                ciphertexts: pii_ciphertexts,
             })
             .await?;
 
-        let identity_hashmap = identity_response.plaintexts;
+        let pii_hashmap = pii_response.plaintexts;
 
         let vacancy_mapper_data: HashMap<String, String> = vacancy_fetcher_data
             .iter()
@@ -506,13 +506,6 @@ impl Dataset for LsiCandidateDataset {
                 .get("ktp_sub_district_id")
                 .and_then(|v| v.as_str())
             {
-                if Uuid::parse_str(id).is_ok() {
-                    master_geo_ids.push(id.to_string());
-                } else {
-                    geo_master.insert(id.to_string(), id.to_string());
-                }
-            }
-            if let Some(id) = candidate.get("domicile_street").and_then(|v| v.as_str()) {
                 if Uuid::parse_str(id).is_ok() {
                     master_geo_ids.push(id.to_string());
                 } else {
@@ -963,10 +956,19 @@ impl Dataset for LsiCandidateDataset {
                 .get("domicile_sub_district_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("-");
-            let domicile_street = candidate_map
+            let domicile_street_ciphertext = candidate_map
                 .get("domicile_street")
                 .and_then(|v| v.as_str())
-                .unwrap_or("-");
+                .unwrap_or("");
+
+            let domicile_street = if domicile_street_ciphertext.is_empty() {
+                "-".to_string()
+            } else {
+                pii_hashmap
+                    .get(domicile_street_ciphertext)
+                    .cloned()
+                    .unwrap_or_else(|| "-".to_string())
+            };
 
             let ktp_city = candidate_map
                 .get("ktp_city_id")
@@ -1038,10 +1040,19 @@ impl Dataset for LsiCandidateDataset {
                 .cloned()
                 .unwrap_or("-".to_string());
 
-            let dob = candidate_map
+            let dob_ciphertext = candidate_map
                 .get("dob")
                 .and_then(|v| v.as_str())
-                .unwrap_or("-");
+                .unwrap_or("");
+
+            let dob = if dob_ciphertext.is_empty() {
+                "-".to_string()
+            } else {
+                pii_hashmap
+                    .get(dob_ciphertext)
+                    .cloned()
+                    .unwrap_or_else(|| "-".to_string())
+            };
 
             let industry = map_master_data
                 .get(candidate_industry)
@@ -1056,7 +1067,7 @@ impl Dataset for LsiCandidateDataset {
             let identity_number = if identity_ciphertext.is_empty() {
                 "-".to_string()
             } else {
-                identity_hashmap
+                pii_hashmap
                     .get(identity_ciphertext)
                     .cloned()
                     .unwrap_or_else(|| "-".to_string())
@@ -1101,7 +1112,7 @@ impl Dataset for LsiCandidateDataset {
                 domicile_province_id: Some(domicile_province_id),
                 domicile_district_id: Some(domicile_district_id),
                 domicile_postal_code: Some(domicile_postal_code.to_string()),
-                domicile_street: Some(domicile_street.to_string()),
+                domicile_street: Some(domicile_street),
                 ktp_street: Some(ktp_street),
                 ktp_province_id: Some(ktp_province_id),
                 ktp_city_id: Some(ktp_city_id),
@@ -1111,7 +1122,7 @@ impl Dataset for LsiCandidateDataset {
                 domicile_sub_district_id: Some(domicile_sub_district_id),
                 identity_number_encrypt: Some(identity_number),
                 industry: Some(industry.to_string()),
-                dob: dob.to_string(),
+                dob,
             });
         }
         let rows: Vec<ExportRow> = rows
