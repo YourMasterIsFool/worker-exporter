@@ -374,43 +374,27 @@ impl Dataset for LsiCandidateDataset {
             vacancy_fetcher.fetch(Some(vacancy_filter)).await?
         };
 
-        let identity_number_encrypt_fetcher = candidate_fetcher_data
+        let identity_ciphertexts = candidate_fetcher_data
             .iter()
             .map(|c| {
                 c.get("identity_number_encrypt")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
+                    .map(str::to_owned)
+                    .unwrap_or_default()
             })
+            .filter(|value| !value.is_empty())
             .collect::<Vec<_>>();
 
         tracing::info!(
-            "IDENTITY NUMBER ENCRYPT FETCHER: {:?}",
-            identity_number_encrypt_fetcher
+            candidates = candidate_fetcher_data.len(),
+            identity_ciphertexts = identity_ciphertexts.len(),
+            "Preparing candidate PII decryption (dob/nik/ktp fields are handled as values)"
         );
-        // let address_after_decrypt_fetcher = candidate_fetcher_data
-        //     .iter()
-        //     .map(|c| {
-        //         c.get("address_after_decrypt")
-        //             .and_then(|v| v.as_str())
-        //             .unwrap_or("")
-        //     })
-        //     .collect::<Vec<_>>();
-        //
-
-        let identy_number = candidate_fetcher_data
-            .iter()
-            .map(|c| {
-                c.get("identity_number_encrypt")
-                    .and_then(|v| v.as_str())
-                    .map(|f| f.to_string())
-                    .unwrap_or("".to_string())
-            })
-            .collect::<Vec<_>>();
         let ats_decryptor_grpc = self.grpc_service.ats_decryptor_grpc.clone();
 
         let identity_response = ats_decryptor_grpc
             .batch_decrypt(DecryptBatchRequest {
-                ciphertexts: identy_number,
+                ciphertexts: identity_ciphertexts,
             })
             .await?;
 
@@ -1032,16 +1016,6 @@ impl Dataset for LsiCandidateDataset {
                 .cloned()
                 .unwrap_or("-".to_string());
 
-            let domicile_street = geo_master
-                .get(domicile_street)
-                .cloned()
-                .unwrap_or("-".to_string());
-
-            //
-            //
-            //
-            //
-
             let ktp_city_id = geo_master.get(ktp_city).cloned().unwrap_or("-".to_string());
 
             let ktp_district_id = geo_master
@@ -1074,15 +1048,19 @@ impl Dataset for LsiCandidateDataset {
                 .cloned()
                 .unwrap_or("-".to_string());
 
-            let candidate_identity_number = candidate_map
-                .get("identity_number")
+            let identity_ciphertext = candidate_map
+                .get("identity_number_encrypt")
                 .and_then(|v| v.as_str())
-                .unwrap_or("-");
+                .unwrap_or("");
 
-            let identity_number = identity_hashmap
-                .get(candidate_identity_number)
-                .cloned()
-                .unwrap_or("-".to_string());
+            let identity_number = if identity_ciphertext.is_empty() {
+                "-".to_string()
+            } else {
+                identity_hashmap
+                    .get(identity_ciphertext)
+                    .cloned()
+                    .unwrap_or_else(|| "-".to_string())
+            };
 
             rows.push(LsiCandidateDatasetRow {
                 vacancy_name: Some(vacancy_name),
@@ -1123,7 +1101,7 @@ impl Dataset for LsiCandidateDataset {
                 domicile_province_id: Some(domicile_province_id),
                 domicile_district_id: Some(domicile_district_id),
                 domicile_postal_code: Some(domicile_postal_code.to_string()),
-                domicile_street: Some(domicile_street),
+                domicile_street: Some(domicile_street.to_string()),
                 ktp_street: Some(ktp_street),
                 ktp_province_id: Some(ktp_province_id),
                 ktp_city_id: Some(ktp_city_id),
