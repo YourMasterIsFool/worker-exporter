@@ -6,21 +6,38 @@ use std::{
 use calamine::Data;
 use moka::future::Cache;
 use serde_json::{Map, Value};
+use tracing::info;
 use uuid::Uuid;
 
+use crate::application::datasets::import::dynamci_dataset_v1::DynamicDatasetV1;
 use crate::{
-    application::fetch_source_regitry::DataFetcherJsonRegistry,
-    core::{
-        traits::{dataset_trait::ImporterDatasetV1, orchestrator::Filterable},
-        types::{CastingEnum, ImportDatasetConfig, ImportTableResult, TableStrategy, WhereField},
+    application::{
+        fetch_source_regitry::DataFetcherJsonRegistry,
+        validations::{
+            prepare_validations, validate_value, PreparedValidation, ValidationRegistry,
+        },
     },
-    infrastructure::datasets::import::dynamci_dataset_v1::DynamicDatasetV1,
-    utils::value::calamine_to_json,
+    core::{
+        traits::orchestrator::SequentialTable,
+        traits::{dataset_trait::ImporterDatasetV1, orchestrator::Filterable},
+        types::{
+            CastingEnum, ImportDatasetConfig, ImportTableResult, TableStrategy, ValidationConfig,
+            WhereField, IMPORT_ENTITY_STATE_RESULT_KEY, IMPORT_FETCHER_ERROR_RESULT_KEY,
+        },
+    },
+    utils::{custom_field_keys_match, value::calamine_to_json},
 };
 
 pub struct LsiImportVacancyV1 {
     fetcher: Arc<DataFetcherJsonRegistry>,
     dynamic_dataset: DynamicDatasetV1,
+    validations: Arc<ValidationRegistry>,
+}
+
+struct PreparedFieldValidation {
+    field_index: usize,
+    header: String,
+    validations: Vec<PreparedValidation>,
 }
 
 impl LsiImportVacancyV1 {
@@ -186,20 +203,344 @@ impl LsiImportVacancyV1 {
         Uuid::parse_str(trimmed).ok().map(|uuid| uuid.to_string())
     }
 
-    pub fn new(fetcher: Arc<DataFetcherJsonRegistry>) -> Self {
+    pub fn new(
+        fetcher: Arc<DataFetcherJsonRegistry>,
+        validations: Arc<ValidationRegistry>,
+    ) -> Self {
         Self {
             fetcher: fetcher.clone(),
             dynamic_dataset: DynamicDatasetV1::new(fetcher),
+            validations,
+        }
+    }
+
+    async fn prepare_field_validations(
+        &self,
+        rows: &[&[Data]],
+        config: &ImportDatasetConfig,
+    ) -> anyhow::Result<Vec<PreparedFieldValidation>> {
+        let mut prepared = Vec::new();
+
+        for (field_index, field) in config.import_config.fields.iter().enumerate() {
+            let mut rules = field
+                .validation_rules
+                .as_ref()
+                .filter(|rules| !rules.is_empty())
+                .cloned()
+                .unwrap_or_default();
+
+            // The generated Excel template uses a trailing `*` as the
+            // required-field marker.  Respect it even when the payload has
+            // not explicitly included a `validations: [{ validator:
+            // "required" }]` entry for that field.
+            let required_by_header = field.header.trim_end().ends_with('*');
+            let already_required = rules
+                .iter()
+                .any(|rule| rule.validator.eq_ignore_ascii_case("required"));
+            if required_by_header && !already_required {
+                rules.push(ValidationConfig {
+                    validator: "required".to_string(),
+                    options: Value::Object(Map::new()),
+                });
+            }
+
+            if rules.is_empty() {
+                continue;
+            }
+
+            let values = rows
+                .iter()
+                .map(|row| {
+                    row.get(field_index)
+                        .map(calamine_to_json)
+                        .unwrap_or(Value::Null)
+                })
+                .collect::<Vec<_>>();
+
+            prepared.push(PreparedFieldValidation {
+                field_index,
+                header: field.header.clone(),
+                validations: prepare_validations(&self.validations, &values, &rules).await?,
+            });
+        }
+
+        Ok(prepared)
+    }
+
+    fn validate_row(rows: &[Data], validations: &mut [PreparedFieldValidation]) -> Value {
+        let mut errors = Map::new();
+
+        for field in validations {
+            let value = rows
+                .get(field.field_index)
+                .map(calamine_to_json)
+                .unwrap_or(Value::Null);
+            let field_errors = validate_value(&value, &mut field.validations)
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>();
+
+            if !field_errors.is_empty() {
+                tracing::warn!(
+                    header = %field.header,
+                    value = ?value,
+                    errors = ?field_errors,
+                    "Import validation gagal"
+                );
+                errors.insert(
+                    field.header.clone(),
+                    Value::Array(field_errors.into_iter().map(Value::String).collect()),
+                );
+            }
+        }
+
+        Value::Object(errors)
+    }
+
+    fn field_is_required(field: &crate::core::traits::orchestrator::ImporterColumn) -> bool {
+        field.header.trim_end().ends_with('*')
+            || field.validation_rules.as_ref().is_some_and(|rules| {
+                rules
+                    .iter()
+                    .any(|rule| rule.validator.eq_ignore_ascii_case("required"))
+            })
+    }
+
+    fn is_missing_required_value(value: Option<Value>) -> bool {
+        match value {
+            None | Some(Value::Null) => true,
+            Some(Value::String(value)) => value.trim().is_empty(),
+            Some(Value::Array(values)) => values.is_empty(),
+            Some(_) => false,
+        }
+    }
+
+    fn append_field_error(errors: &mut Map<String, Value>, header: &str, error: &str) {
+        let error = Value::String(error.to_string());
+        let entry = errors
+            .entry(header.to_string())
+            .or_insert_with(|| Value::Array(Vec::new()));
+
+        if let Value::Array(field_errors) = entry {
+            if !field_errors.contains(&error) {
+                field_errors.push(error);
+            }
+        }
+    }
+
+    /// Required input is checked independently from validator state. This is
+    /// important for trailing empty Excel cells: spreadsheet readers may omit
+    /// those cells entirely, but they must still produce one error per
+    /// required configured header.
+    fn validate_required_input_fields(
+        rows: &[Data],
+        config: &ImportDatasetConfig,
+        errors: &mut Value,
+    ) {
+        let Value::Object(error_map) = errors else {
+            return;
+        };
+
+        for (field_index, field) in config.import_config.fields.iter().enumerate() {
+            if !Self::field_is_required(field) {
+                continue;
+            }
+
+            let value = rows.get(field_index).map(calamine_to_json);
+            if !Self::is_missing_required_value(value) {
+                continue;
+            }
+
+            Self::append_field_error(error_map, &field.header, "Required");
+            tracing::warn!(
+                header = %field.header,
+                field_index,
+                "Import required validation gagal karena cell Excel kosong"
+            );
+        }
+    }
+
+    /// `required` initially validates the Excel cell.  For lookup fields that
+    /// is not sufficient: a non-empty label can still fail to resolve through
+    /// its fetcher.  Validate the resolved ID/value as well so the logging
+    /// state reflects data that can actually be inserted and synchronized.
+    fn validate_resolved_required_fields(
+        &self,
+        rows: &[Data],
+        result: &HashMap<String, ImportTableResult>,
+        config: &ImportDatasetConfig,
+        errors: &mut Value,
+    ) {
+        let Value::Object(error_map) = errors else {
+            return;
+        };
+
+        for (field_index, field) in config.import_config.fields.iter().enumerate() {
+            if field.fetcher.is_none() || !Self::field_is_required(field) {
+                continue;
+            }
+
+            let resolved_value = field
+                .column
+                .split('|')
+                .filter_map(Self::parse_table_column_path)
+                .filter(|(_, column)| !column.ends_with("_meta"))
+                .find_map(|(table, column)| self.extract_value_by_path(result, table, column));
+
+            if !Self::is_missing_required_value(resolved_value) {
+                continue;
+            }
+
+            if let Some(raw_value) = rows.get(field_index).and_then(Self::raw_row_string_value) {
+                Self::append_field_error(
+                    error_map,
+                    &field.header,
+                    &format!(
+                        "Data fetcher '{}' tidak menemukan nilai '{}'",
+                        field.fetcher.as_deref().unwrap_or_default(),
+                        raw_value
+                    ),
+                );
+            }
+
+            Self::append_field_error(
+                error_map,
+                &field.header,
+                "Required: data fetcher tidak ditemukan",
+            );
+
+            tracing::warn!(
+                header = %field.header,
+                column = %field.column,
+                fetcher = ?field.fetcher,
+                "Import required validation gagal karena hasil fetcher NULL"
+            );
+        }
+    }
+
+    fn attach_validation_errors(result: &mut HashMap<String, ImportTableResult>, errors: Value) {
+        result.insert(
+            IMPORT_ENTITY_STATE_RESULT_KEY.to_string(),
+            ImportTableResult {
+                // The record is metadata for the loader, not a warehouse table.
+                // EAV prevents the orchestrator from adding a `logging_id` column to it.
+                strategy: TableStrategy::Eav,
+                columns: vec!["errors".to_string()],
+                values: vec![vec![errors]],
+            },
+        );
+    }
+
+    fn merge_fetcher_errors(result: &mut HashMap<String, ImportTableResult>, errors: &mut Value) {
+        let Some(fetcher_errors) = result.remove(IMPORT_FETCHER_ERROR_RESULT_KEY) else {
+            return;
+        };
+        let Some(error_index) = fetcher_errors
+            .columns
+            .iter()
+            .position(|column| column == "errors")
+        else {
+            return;
+        };
+        let Some(Value::Object(fetcher_error_map)) = fetcher_errors
+            .values
+            .first()
+            .and_then(|values| values.get(error_index))
+        else {
+            return;
+        };
+        let Value::Object(error_map) = errors else {
+            return;
+        };
+
+        for (header, values) in fetcher_error_map {
+            let Value::Array(values) = values else {
+                continue;
+            };
+            for value in values {
+                if let Some(message) = value.as_str() {
+                    Self::append_field_error(error_map, header, message);
+                }
+            }
         }
     }
 
     fn build_base_config(&self, config: &ImportDatasetConfig) -> ImportDatasetConfig {
         let mut cloned = config.clone();
+
+        // `ImporterColumn::is_custom` is the field-level source of truth.  The
+        // dynamic dataset routes EAV data based on `sequential_table`, so make
+        // the two representations consistent before processing the row.  This
+        // also keeps an incomplete payload from silently treating custom
+        // fields as a normal has-many table (or dropping them entirely).
+        let custom_tables = cloned
+            .import_config
+            .fields
+            .iter()
+            .filter(|field| field.is_custom)
+            .flat_map(|field| field.column.split('|'))
+            .filter_map(Self::parse_table_column_path)
+            .map(|(table, _)| table.trim().to_string())
+            .collect::<HashSet<_>>();
+
+        let sequential_tables = cloned
+            .import_config
+            .sequential_table
+            .get_or_insert_with(Vec::new);
+        for custom_table in custom_tables {
+            if custom_table == cloned.import_config.master_table {
+                continue;
+            }
+
+            if let Some(sequential_table) = sequential_tables
+                .iter_mut()
+                .find(|sequential_table| sequential_table.table == custom_table)
+            {
+                sequential_table.is_custom = true;
+            } else {
+                sequential_tables.push(SequentialTable {
+                    table: custom_table,
+                    is_custom: true,
+                    fk_column: "parent_id".to_string(),
+                });
+            }
+        }
+
+        let master_table = cloned.import_config.master_table.clone();
+
         cloned.import_config.fields = cloned
             .import_config
             .fields
             .into_iter()
             .map(|mut field| {
+                // A custom field unique validator has to look up the EAV
+                // table by `field_key`.  This keeps legacy payloads concise:
+                // field-level `is_custom` is enough to enable that behavior.
+                if field.is_custom {
+                    if let Some(validation_rules) = field.validation_rules.as_mut() {
+                        for rule in validation_rules
+                            .iter_mut()
+                            .filter(|rule| rule.validator.eq_ignore_ascii_case("unique"))
+                        {
+                            if let Value::Object(options) = &mut rule.options {
+                                options
+                                    .entry("is_custom".to_string())
+                                    .or_insert(Value::Bool(true));
+                                if options
+                                    .get("fetcher")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|fetcher| fetcher.eq_ignore_ascii_case("VACANCY"))
+                                {
+                                    options.insert(
+                                        "fetcher".to_string(),
+                                        Value::String("VACANCY_CUSTOM_FIELD".to_string()),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if field.fetcher.is_some() {
                     let fetcher_field_key = field
                         .fetcher_field_key
@@ -231,11 +572,21 @@ impl LsiImportVacancyV1 {
                 let groups = field
                     .column
                     .split('|')
-                    .filter(|group| {
+                    .filter_map(|group| {
                         let trimmed = group.trim();
-                        !trimmed.ends_with(":*") && !Self::is_stage_template_group(trimmed)
+                        if trimmed.ends_with(":*") {
+                            return None;
+                        }
+
+                        // A stage template itself is a lookup value stored on
+                        // the master temporary row. `append_stage_rows` then
+                        // expands it into its stage-detail child rows.
+                        if Self::is_stage_template_group(trimmed) {
+                            return Some(format!("{}:requirement_stage_template_id", master_table));
+                        }
+
+                        Some(trimmed.to_string())
                     })
-                    .map(|group| group.trim().to_string())
                     .collect::<Vec<_>>();
 
                 field.column = groups.join("|");
@@ -306,7 +657,16 @@ impl LsiImportVacancyV1 {
 
                 for row in &mut table_result.values {
                     if let Some(value) = row.get_mut(column_index) {
-                        *value = Self::normalize_number_value(std::mem::take(value))?;
+                        *value = Self::normalize_number_value(std::mem::take(value)).map_err(
+                            |error| {
+                                anyhow::anyhow!(
+                                    "field '{}' (column '{}'): {}",
+                                    field.header,
+                                    column,
+                                    error
+                                )
+                            },
+                        )?;
                     }
                 }
             }
@@ -437,7 +797,7 @@ impl LsiImportVacancyV1 {
                         continue;
                     };
 
-                    if field_key == column {
+                    if custom_field_keys_match(field_key, column) {
                         return Self::extract_custom_field_resolved_value(custom_value);
                     }
                 }
@@ -602,13 +962,22 @@ impl LsiImportVacancyV1 {
         }
 
         if let Some(permission_key) = &config.import_config.permission_key {
-
             // mapping data to value array because data is serde_json::value
 
-            let mapping_to_value_array = Value::Array(permission_key.iter().map(|f| Value::String(f.to_string())).collect());
+            let mapping_to_value_array = Value::Array(
+                permission_key
+                    .iter()
+                    .map(|f| Value::String(f.to_string()))
+                    .collect(),
+            );
 
-            // insert permission_key 
-            self.upsert_main_value(result, master_table, "permission_keys", mapping_to_value_array);
+            // insert permission_key
+            self.upsert_main_value(
+                result,
+                master_table,
+                "permission_keys",
+                mapping_to_value_array,
+            );
         }
 
         Ok(())
@@ -975,6 +1344,45 @@ impl LsiImportVacancyV1 {
 
         Ok(())
     }
+
+    async fn import_mapped(
+        &self,
+        rows: &[Data],
+        config: &ImportDatasetConfig,
+        cache: &Cache<String, Value>,
+    ) -> anyhow::Result<HashMap<String, ImportTableResult>> {
+        let base_config = self.build_base_config(config);
+        let raw_row = rows.iter().map(calamine_to_json).collect::<Vec<_>>();
+        info!(
+            raw_row = ?raw_row,
+            fields = ?base_config.import_config.fields.iter().map(|field| (&field.header, &field.column, &field.fetcher)).collect::<Vec<_>>(),
+            "LSI vacancy dataset received import row"
+        );
+        let mut result = self
+            .dynamic_dataset
+            .import(rows, &base_config, cache)
+            .await?;
+
+        info!(
+            dataset_result = ?result,
+            "LSI vacancy dataset result after fetcher resolution"
+        );
+
+        self.normalize_numeric_columns(config, &mut result)?;
+
+        self.append_config_scope_columns(config, &mut result)?;
+        self.append_main_payload_columns(config, &mut result)?;
+        self.append_stage_rows(rows, config, &mut result).await?;
+        self.append_requirement_rows(rows, config, &mut result)
+            .await?;
+
+        info!(
+            final_dataset_result = ?result,
+            "LSI vacancy dataset result ready for temporary loader"
+        );
+
+        Ok(result)
+    }
 }
 
 #[async_trait::async_trait]
@@ -986,18 +1394,38 @@ impl ImporterDatasetV1 for LsiImportVacancyV1 {
         cache: &Cache<String, Value>,
     ) -> anyhow::Result<std::collections::HashMap<String, ImportTableResult>> {
         let base_config = self.build_base_config(config);
-        let mut result = self
-            .dynamic_dataset
-            .import(rows, &base_config, cache)
+        let mut validations = self
+            .prepare_field_validations(&[rows], &base_config)
             .await?;
+        let mut errors = Self::validate_row(rows, &mut validations);
+        Self::validate_required_input_fields(rows, &base_config, &mut errors);
+        let mut result = self.import_mapped(rows, &base_config, cache).await?;
+        Self::merge_fetcher_errors(&mut result, &mut errors);
+        self.validate_resolved_required_fields(rows, &result, &base_config, &mut errors);
+        Self::attach_validation_errors(&mut result, errors);
 
-        self.normalize_numeric_columns(config, &mut result)?;
+        Ok(result)
+    }
 
-        self.append_config_scope_columns(config, &mut result)?;
-        self.append_main_payload_columns(config, &mut result)?;
-        self.append_stage_rows(rows, config, &mut result).await?;
-        self.append_requirement_rows(rows, config, &mut result)
-            .await?;
+    async fn import_batch(
+        &self,
+        rows: &[&[Data]],
+        config: &ImportDatasetConfig,
+        cache: &Cache<String, Value>,
+    ) -> anyhow::Result<Vec<HashMap<String, ImportTableResult>>> {
+        let base_config = self.build_base_config(config);
+        let mut validations = self.prepare_field_validations(rows, &base_config).await?;
+        let mut result = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let mut errors = Self::validate_row(row, &mut validations);
+            Self::validate_required_input_fields(row, &base_config, &mut errors);
+            let mut imported = self.import_mapped(row, &base_config, cache).await?;
+            Self::merge_fetcher_errors(&mut imported, &mut errors);
+            self.validate_resolved_required_fields(row, &imported, &base_config, &mut errors);
+            Self::attach_validation_errors(&mut imported, errors);
+            result.push(imported);
+        }
 
         Ok(result)
     }

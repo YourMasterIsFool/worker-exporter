@@ -4,15 +4,16 @@ use anyhow::Ok;
 
 use chrono::NaiveDateTime;
 use serde_json::json;
-use sqlx::QueryBuilder;
+use sqlx::{Postgres, QueryBuilder};
 use tracing::{debug, instrument};
 
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::{
+    core::pagination::Paginated,
     core::traits::load::{LoadEnum, LoaderPersitence},
     domain::logging::{
-        entity::{LoggingEntity, LoggingStatus},
-        repo::LoggingRepo,
+        entity::{LoggingEntity, LoggingFilter, LoggingSort, LoggingStatus},
+        repo::{ListLoggingRequest, LoggingRepo},
     },
     errors::DomainError,
     utils::load_query::build_query,
@@ -56,7 +57,7 @@ impl From<LoggingWarehouseModel> for LoggingEntity {
             status: value.status,
             id: value.id,
             total_chunk: value.total_chunk,
-            config: None,
+            config: value.config,
         }
     }
 }
@@ -117,6 +118,48 @@ impl LoggingWarehouse {
 
         Ok(())
     }
+
+    fn append_filters(query_builder: &mut QueryBuilder<'_, Postgres>, filter: &LoggingFilter) {
+        let mut has_filter = false;
+
+        for (column, value) in [
+            ("id", &filter.id),
+            ("actor_id", &filter.actor_id),
+            ("email", &filter.email),
+            ("tenant_id", &filter.tenant_id),
+            ("logging_type", &filter.logging_type),
+            ("status", &filter.status),
+            ("stream_id", &filter.stream_id),
+        ] {
+            if let Some(value) = value {
+                query_builder.push(if has_filter { " AND " } else { " WHERE " });
+                query_builder
+                    .push(column)
+                    .push(" = ")
+                    .push_bind(value.clone());
+                has_filter = true;
+            };
+        }
+    }
+
+    fn append_order_by(query_builder: &mut QueryBuilder<'_, Postgres>, sort: &[LoggingSort]) {
+        if sort.is_empty() {
+            query_builder.push(" ORDER BY created_at DESC, id DESC");
+            return;
+        }
+
+        query_builder.push(" ORDER BY ");
+        for (index, sort) in sort.iter().enumerate() {
+            if index > 0 {
+                query_builder.push(", ");
+            }
+            query_builder
+                .push(sort.field.column())
+                .push(" ")
+                .push(sort.direction.as_sql());
+        }
+        query_builder.push(", id DESC");
+    }
 }
 impl LoaderPersitence for LoggingWarehouse {
     fn table(&self) -> &'static str {
@@ -137,6 +180,7 @@ impl LoaderPersitence for LoggingWarehouse {
             "current_chunk",
             "cursor",
             "stream_id",
+            "config",
         ]
     }
 
@@ -146,25 +190,51 @@ impl LoaderPersitence for LoggingWarehouse {
 }
 #[async_trait::async_trait]
 impl LoggingRepo for LoggingWarehouse {
-    #[instrument(skip(self, tenant_id))]
-    async fn list_log_by_tenant_id(&self, tenant_id: &str) -> anyhow::Result<Vec<LoggingEntity>> {
-        let query = format!("SELECT * FROM {}", self.table());
-        let mut query_builder = QueryBuilder::new(&query);
-        query_builder.push(" WHERE tenant_id = ");
-        query_builder.push_bind(tenant_id);
-        query_builder.push(" ORDER BY created_at DESC");
+    async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<LoggingEntity>> {
+        sqlx::query_as::<_, LoggingWarehouseModel>(
+            "SELECT * FROM loggings WHERE id::text = $1 LIMIT 1",
+        )
+        .bind(id)
+        .fetch_optional(&self.client.pool)
+        .await
+        .map(|logging| logging.map(Into::into))
+        .map_err(DomainError::DatabaseError)
+        .map_err(Into::into)
+    }
 
-        let result = query_builder
-            .build_query_as::<LoggingWarehouseModel>()
-            .fetch_all(&self.client.pool)
+    #[instrument(skip(self, request))]
+    async fn list_logs(
+        &self,
+        request: &ListLoggingRequest,
+    ) -> anyhow::Result<Paginated<LoggingEntity>> {
+        let mut count_query = QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM loggings");
+        Self::append_filters(&mut count_query, &request.filter);
+        let total_record: i64 = count_query
+            .build_query_scalar()
+            .fetch_one(&self.client.pool)
             .await
             .map_err(DomainError::DatabaseError)?;
 
-        let mapper_result = result
+        let query = format!("SELECT * FROM {}", self.table());
+        let mut query_builder = QueryBuilder::<Postgres>::new(query);
+        Self::append_filters(&mut query_builder, &request.filter);
+        Self::append_order_by(&mut query_builder, &request.sort);
+        query_builder
+            .push(" LIMIT ")
+            .push_bind(i64::from(request.pagination.limit()))
+            .push(" OFFSET ")
+            .push_bind(request.pagination.offset());
+
+        let content = query_builder
+            .build_query_as::<LoggingWarehouseModel>()
+            .fetch_all(&self.client.pool)
+            .await
+            .map_err(DomainError::DatabaseError)?
             .into_iter()
             .map(|f| f.into())
             .collect::<Vec<LoggingEntity>>();
-        Ok(mapper_result)
+
+        Ok(Paginated::new(content, total_record, request.pagination))
     }
     #[instrument(skip(self, entity), fields(logging_type = %entity.logging_type, stream_id = %entity.stream_id))]
     async fn store(&self, entity: LoggingEntity) -> anyhow::Result<String> {
@@ -186,6 +256,7 @@ impl LoggingRepo for LoggingWarehouse {
             .bind(entity.current_chunk)
             .bind(entity.cursor)
             .bind(entity.stream_id)
+            .bind(entity.config)
             .fetch_one(&self.client.pool)
             .await
             .map_err(DomainError::DatabaseError)?;

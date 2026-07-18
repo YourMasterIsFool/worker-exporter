@@ -1,6 +1,13 @@
 use std::sync::Arc;
 
-use crate::{domain::logging::repo::LoggingRepo, errors::AppError};
+use crate::{
+    core::pagination::Paginated,
+    domain::logging::{
+        entity::LoggingEntity,
+        repo::{ListLoggingRequest, LoggingRepo},
+    },
+    errors::AppError,
+};
 
 pub struct ListLogByTenantIdUsecase {
     pub logging_repo: Arc<dyn LoggingRepo + Send + Sync>,
@@ -13,11 +20,11 @@ impl ListLogByTenantIdUsecase {
 
     pub async fn execute(
         &self,
-        tenant_id: &str,
-    ) -> anyhow::Result<Vec<crate::domain::logging::entity::LoggingEntity>> {
+        request: &ListLoggingRequest,
+    ) -> anyhow::Result<Paginated<LoggingEntity>> {
         let logs = self
             .logging_repo
-            .list_log_by_tenant_id(tenant_id)
+            .list_logs(request)
             .await
             .map_err(|err| AppError::InternalServerError(err.to_string()))?;
         Ok(logs)

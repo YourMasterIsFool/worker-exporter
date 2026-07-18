@@ -108,10 +108,19 @@ where
             query.push(" WHERE 1=1 ");
         }
         for field in params {
+            let use_case_insensitive_lookup = should_case_insensitive_lookup(&field);
+
             if let Some(values) = field.values {
                 let clean_values: Vec<String> = values
                     .into_iter()
                     .filter(|s| s != "null" && !s.is_empty())
+                    .map(|value| {
+                        if use_case_insensitive_lookup {
+                            value.to_lowercase()
+                        } else {
+                            value
+                        }
+                    })
                     .collect::<HashSet<String>>()
                     .into_iter()
                     .collect();
@@ -125,13 +134,39 @@ where
                 // index di kolom tersebut tidak akan kepakai (lihat pembahasan sebelumnya).
                 let cast = resolve_cast_type(field.casting.as_ref());
 
-                query.push(format!(" AND {} {} ANY(", field.field, field.operator));
+                let column = if use_case_insensitive_lookup {
+                    format!("LOWER({})", field.field)
+                } else {
+                    field.field
+                };
+                let operator = if use_case_insensitive_lookup {
+                    "="
+                } else {
+                    field.operator.as_str()
+                };
+
+                query.push(format!(" AND {column} {operator} ANY("));
                 query.push_bind(clean_values);
                 query.push(format!("::{}[]) ", &cast));
             } else if let Some(value) = field.value {
                 let cast = resolve_cast_type(field.casting.as_ref());
+                let value = if use_case_insensitive_lookup {
+                    value.to_lowercase()
+                } else {
+                    value
+                };
+                let column = if use_case_insensitive_lookup {
+                    format!("LOWER({})", field.field)
+                } else {
+                    field.field
+                };
+                let operator = if use_case_insensitive_lookup {
+                    "="
+                } else {
+                    field.operator.as_str()
+                };
 
-                query.push(format!(" AND {} {} ", field.field, field.operator));
+                query.push(format!(" AND {column} {operator} "));
                 query.push_bind(value);
                 query.push(format!("::{} ", &cast));
             }
@@ -148,6 +183,13 @@ where
         .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
     Ok(parse_result)
+}
+
+fn should_case_insensitive_lookup(field: &WhereField) -> bool {
+    matches!(
+        field.casting.as_ref(),
+        None | Some(crate::core::types::CastingEnum::Varchar)
+    ) && matches!(field.operator.to_ascii_uppercase().as_str(), "=" | "ILIKE")
 }
 
 fn resolve_cast_type(casting: Option<&crate::core::types::CastingEnum>) -> String {
@@ -178,5 +220,33 @@ fn validate_cast_type(cast: &str) -> anyhow::Result<()> {
         Ok(())
     } else {
         Err(anyhow::anyhow!("cast_type tidak diizinkan: {cast}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::types::{CastingEnum, WhereField};
+
+    use super::should_case_insensitive_lookup;
+
+    #[test]
+    fn only_case_folds_text_lookup_filters() {
+        let text_filter = WhereField {
+            field: "name".to_string(),
+            operator: "ILIKE".to_string(),
+            value: None,
+            values: Some(vec!["Open".to_string()]),
+            casting: Some(CastingEnum::Varchar),
+        };
+        let uuid_filter = WhereField {
+            field: "tenant_id".to_string(),
+            operator: "=".to_string(),
+            value: Some("019e95a5-f5f3-7dd8-952b-0ce16845d9bd".to_string()),
+            values: None,
+            casting: Some(CastingEnum::Uuid),
+        };
+
+        assert!(should_case_insensitive_lookup(&text_filter));
+        assert!(!should_case_insensitive_lookup(&uuid_filter));
     }
 }

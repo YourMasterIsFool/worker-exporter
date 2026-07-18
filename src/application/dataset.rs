@@ -1,20 +1,24 @@
 use std::sync::Arc;
 
+use crate::application::datasets::export::ats::lsi_candidate_dataset::LsiCandidateDataset;
+use crate::application::datasets::import::ats::ats_import_lsi_vacancy_dataset::AtsImportLsiVacancyDataset;
+use crate::application::datasets::import::ats::lsi_import_vacancy_v1::LsiImportVacancyV1;
+use crate::application::datasets::import::dynamci_dataset_v1::DynamicDatasetV1;
+use crate::application::datasets::import::dynamic_dataset::DynamicDataset;
+use crate::application::datasets::import::lsi_vacancy_sync_dataset::LsiVacancySyncDataset;
 use crate::application::fetch_source_regitry::DataFetcherJsonRegistry;
 use crate::application::grpcs::gprc::GrpcService;
 use crate::application::ingestion::source_registry::SourceRegistry;
+use crate::application::validations::{
+    required_validator::RequiredValidator, unique_validator::UniqueValidator, ValidationRegistry,
+};
 use crate::core::traits::dataset_trait::{
     Dataset, ImporterDataset, ImporterDatasetV1, SyncDataset,
 };
 use crate::core::traits::strategy::registry::Registry;
-use crate::infrastructure::datasets::export::ats::lsi_candidate_dataset::LsiCandidateDataset;
-use crate::infrastructure::datasets::import::ats::ats_import_lsi_vacancy_dataset::AtsImportLsiVacancyDataset;
-use crate::infrastructure::datasets::import::ats::lsi_import_vacancy_v1::LsiImportVacancyV1;
-use crate::infrastructure::datasets::import::dynamci_dataset_v1::DynamicDatasetV1;
-use crate::infrastructure::datasets::import::dynamic_dataset::DynamicDataset;
-use crate::infrastructure::datasets::import::lsi_vacancy_sync_dataset::LsiVacancySyncDataset;
 use crate::infrastructure::db::ats_client::AtsClient;
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
+use crate::infrastructure::loader::warehouse::warehouse_logging_import::WarehouseLoggingImport;
 
 pub type DatasetRegistry = Registry<dyn Dataset + Send + Sync>;
 
@@ -71,6 +75,10 @@ pub fn build_importer_dataset_registry_v1(
     fetcher_registry: Arc<DataFetcherJsonRegistry>,
 ) -> ImporterDatasetRegistryV1 {
     let mut registry = ImporterDatasetRegistryV1::new();
+    let mut validation_registry = ValidationRegistry::new();
+    validation_registry.register("REQUIRED", RequiredValidator);
+    validation_registry.register("UNIQUE", UniqueValidator::new(fetcher_registry.clone()));
+    let validation_registry = Arc::new(validation_registry);
 
     registry
         .register(
@@ -81,7 +89,10 @@ pub fn build_importer_dataset_registry_v1(
     registry
         .register(
             "LSI_IMPORT_VACANCY_V1",
-            Arc::new(LsiImportVacancyV1::new(fetcher_registry.clone())),
+            Arc::new(LsiImportVacancyV1::new(
+                fetcher_registry.clone(),
+                validation_registry,
+            )),
         )
         .expect("error register lsi import vacancy v1 dataset");
     registry
@@ -92,6 +103,7 @@ pub type SyncDatasetRegistry = Registry<dyn SyncDataset + Send + Sync>;
 pub fn build_sync_dataset_registry(
     fetcher_registry: Arc<DataFetcherJsonRegistry>,
     source_registry: Arc<SourceRegistry>,
+    import_logging: Arc<WarehouseLoggingImport>,
 ) -> SyncDatasetRegistry {
     let mut registry = SyncDatasetRegistry::new();
 
@@ -101,6 +113,7 @@ pub fn build_sync_dataset_registry(
             Arc::new(LsiVacancySyncDataset {
                 source: source_registry.clone(),
                 fetcher: fetcher_registry.clone(),
+                import_logging,
             }),
         )
         .expect("error register lsi vacancy sync dataset");

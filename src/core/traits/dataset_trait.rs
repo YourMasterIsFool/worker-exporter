@@ -52,6 +52,21 @@ pub trait ImporterDatasetV1: Send + Sync {
         config: &ImportDatasetConfig,
         cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<HashMap<String, ImportTableResult>>;
+
+    async fn import_batch(
+        &self,
+        rows: &[&[Data]],
+        config: &ImportDatasetConfig,
+        cache: &Cache<String, serde_json::Value>,
+    ) -> anyhow::Result<Vec<HashMap<String, ImportTableResult>>> {
+        let mut result = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            result.push(self.import(row, config, cache).await?);
+        }
+
+        Ok(result)
+    }
 }
 
 #[async_trait::async_trait]

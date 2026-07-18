@@ -1,5 +1,6 @@
 pub mod bulk_loader_registry;
 pub mod dataset;
+pub mod datasets;
 pub mod errors;
 pub mod gprc_registry;
 pub mod grpcs;
@@ -22,4 +23,5 @@ pub mod sync;
 pub mod sync_aggregator_registry;
 
 pub mod fetch_source_regitry;
+pub mod validations;
 pub mod writter;

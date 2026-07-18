@@ -14,9 +14,10 @@ use crate::application::fetch_source_regitry::DataFetcherJsonRegistry;
 use crate::application::import::import_registry::ImportLoaderRegistry;
 use crate::application::loader_registry::LoaderRegistry;
 use crate::application::pipelines::pipeline_import_registry::PipelineImportRegistry;
-use crate::core::traits::dataset_trait::{ ImporterDatasetV1};
+use crate::core::traits::dataset_trait::ImporterDatasetV1;
 use crate::core::traits::etl::DataFetcherJson;
 // 🔥 Pastikan mengimpor ImporterDatasetV1
+use crate::application::datasets::import;
 use crate::core::traits::load::{self, ImportLoadPersitence, IncrementalLoadPersitence};
 use crate::core::traits::pipeline::pipeline_trait::PipelineImport;
 use crate::core::traits::publisher::Publisher;
@@ -28,9 +29,9 @@ use crate::domain::logging;
 use crate::domain::logging::entity::{LoggingEntity, LoggingStatus, LoggingType};
 use crate::domain::logging::repo::LoggingRepo;
 use crate::infrastructure;
-use crate::infrastructure::datasets::import;
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::infrastructure::pipeline::ats::vacancy_import_pipeline;
+use crate::utils::{resolve_template_column_indexes, resolve_template_row};
 use crate::{
     application::grpcs::gprc::GrpcService,
     core::traits::orchestrator::{Orchestrator, OrchestratorJob},
@@ -51,6 +52,20 @@ pub struct ImportOrchestrator {
 }
 
 impl ImportOrchestrator {
+    fn normalized_lookup_token(value: &str) -> String {
+        value.trim().to_lowercase()
+    }
+
+    fn lookup_operator(casting: Option<&CastingEnum>) -> &'static str {
+        match casting {
+            Some(CastingEnum::Uuid)
+            | Some(CastingEnum::Number)
+            | Some(CastingEnum::Date)
+            | Some(CastingEnum::Enum(_)) => "=",
+            Some(CastingEnum::Varchar) | None => "ILIKE",
+        }
+    }
+
     async fn publish_auto_sync(
         &self,
         job: &OrchestratorJob,
@@ -192,7 +207,11 @@ impl ImportOrchestrator {
                     let token_string = raw_token.trim().to_string();
                     if !token_string.is_empty() {
                         let clean_fetcher = fetcher_name.to_uppercase();
-                        let cache_key = format!("{}:{}", clean_fetcher, token_string);
+                        let cache_key = format!(
+                            "{}:{}",
+                            clean_fetcher,
+                            Self::normalized_lookup_token(&token_string)
+                        );
 
                         if !self.local_cache.contains_key(&cache_key) {
                             let entry = missing_fetcher_keys
@@ -232,14 +251,15 @@ impl ImportOrchestrator {
                 anyhow::anyhow!("Fetcher '{}' tidak ditemukan: {}", fetcher_name, e)
             })?;
 
+            let casting = configured_casting.or_else(|| {
+                fetcher_field_key
+                    .eq_ignore_ascii_case("id")
+                    .then_some(CastingEnum::Uuid)
+            });
             let filter = vec![WhereField {
-                casting: configured_casting.or_else(|| {
-                    fetcher_field_key
-                        .eq_ignore_ascii_case("id")
-                        .then_some(CastingEnum::Uuid)
-                }),
+                operator: Self::lookup_operator(casting.as_ref()).into(),
+                casting,
                 field: fetcher_field_key.clone(),
-                operator: "=".into(),
                 values: Some(tokens_vec),
                 value: None,
             }];
@@ -261,7 +281,11 @@ impl ImportOrchestrator {
 
                 for fetcher_value in cache_values {
                     let clean_fetcher = fetcher_name.to_uppercase();
-                    let cache_key = format!("{}:{}", clean_fetcher, fetcher_value);
+                    let cache_key = format!(
+                        "{}:{}",
+                        clean_fetcher,
+                        Self::normalized_lookup_token(&fetcher_value)
+                    );
 
                     self.local_cache.insert(cache_key, hit_row.clone()).await;
                 }
@@ -282,14 +306,17 @@ impl ImportOrchestrator {
     ) -> anyhow::Result<()> {
         let _ = import_pipeline;
 
+        /*
         let response = reqwest::get(url).await?.error_for_status()?;
         let bytes = response.bytes().await?;
+        */
+        let bytes = tokio::fs::read("template_import_v35.xlsx").await?;
 
         tracing::info!(
             logging_id = logging_id,
             url = url,
             bytes = bytes.len(),
-            "Membuka workbook import dari response download."
+            "Membuka workbook import dari template lokal."
         );
 
         let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes)).map_err(|err| {
@@ -299,10 +326,29 @@ impl ImportOrchestrator {
 
         let sheet_name = workbook.sheet_names()[0].clone();
         let range = workbook.worksheet_range(&sheet_name)?;
+        let header_row = range.rows().next().unwrap_or(&[]);
+        let field_headers = dataset_config
+            .import_config
+            .fields
+            .iter()
+            .map(|field| field.header.as_str())
+            .collect::<Vec<_>>();
+        let template_column_indexes = resolve_template_column_indexes(header_row, &field_headers);
+
+        tracing::info!(
+            fields = ?dataset_config
+                .import_config
+                .fields
+                .iter()
+                .map(|field| field.header.as_str())
+                .collect::<Vec<_>>(),
+            column_indexes = ?template_column_indexes,
+            "Resolved import values from workbook headers"
+        );
 
         let chunk_limit = dataset_config.import_config.chunk as usize;
 
-        let mut raw_row_buffer = vec![];
+        let mut raw_row_buffer: Vec<Vec<calamine::Data>> = vec![];
         // `start_row` menggunakan nomor baris Excel (1-based). Default mulai
         // dari baris 2 agar baris pertama yang biasanya berisi header dilewati.
         let start_row = dataset_config.import_config.start_row.unwrap_or(2);
@@ -312,7 +358,7 @@ impl ImportOrchestrator {
             raw_row_buffer.clear();
             for _ in 0..chunk_limit {
                 if let Some(row) = row_iter.next() {
-                    raw_row_buffer.push(row);
+                    raw_row_buffer.push(resolve_template_row(row, &template_column_indexes));
                 } else {
                     break;
                 }
@@ -322,20 +368,20 @@ impl ImportOrchestrator {
                 break;
             }
 
+            let raw_row_refs = raw_row_buffer.iter().map(Vec::as_slice).collect::<Vec<_>>();
+
             if let Err(err) = self
-                .pre_fetch_chunk_dependencies(&raw_row_buffer, dataset_config)
+                .pre_fetch_chunk_dependencies(&raw_row_refs, dataset_config)
                 .await
             {
                 tracing::error!("Gagal menjalankan pre-fetch batch cache: {:?}", err);
             }
 
-            let mut chunk_batch: Vec<HashMap<String, ImportTableResult>> = vec![];
+            let mut chunk_batch = dataset
+                .import_batch(&raw_row_refs, dataset_config, &self.local_cache)
+                .await?;
 
-            for row in &raw_row_buffer {
-                let mut row_data = dataset
-                    .import(*row, &dataset_config, &self.local_cache)
-                    .await?;
-
+            for row_data in &mut chunk_batch {
                 for (_table_name, table_result) in row_data.iter_mut() {
                     if table_result.strategy == TableStrategy::Eav {
                         continue;
@@ -345,8 +391,6 @@ impl ImportOrchestrator {
                         row_values.push(Value::String(logging_id.to_string()));
                     }
                 }
-
-                chunk_batch.push(row_data);
             }
 
             if !chunk_batch.is_empty() {
@@ -414,13 +458,11 @@ impl ImportOrchestrator {
                 .pre_fetch_chunk_dependencies(&raw_row_buffer, dataset_config)
                 .await;
 
-            let mut chunk_batch: Vec<HashMap<String, ImportTableResult>> = vec![];
+            let mut chunk_batch = dataset
+                .import_batch(&raw_row_buffer, dataset_config, &self.local_cache)
+                .await?;
 
-            for row in &raw_row_buffer {
-                let mut row_data: HashMap<String, ImportTableResult> = dataset
-                    .import(*row, &dataset_config, &self.local_cache)
-                    .await?;
-
+            for row_data in &mut chunk_batch {
                 for (_table_name, table_result) in row_data.iter_mut() {
                     if table_result.strategy == TableStrategy::Eav {
                         continue;
@@ -430,8 +472,6 @@ impl ImportOrchestrator {
                         row_values.push(Value::String(logging_id.to_string()));
                     }
                 }
-
-                chunk_batch.push(row_data);
             }
 
             if !chunk_batch.is_empty() {
@@ -468,31 +508,38 @@ impl Orchestrator for ImportOrchestrator {
                 total_chunk: 0,
                 cursor: None,
                 stream_id: msg_id.to_string().clone(),
-                config: Some(serde_json::to_value(import_config.clone())?),
+                // Simpan payload IMPORT lengkap agar halaman detail dapat memakai
+                // konfigurasi asli (termasuk fields/template/sync_config) untuk
+                // memetakan data temporary kembali ke header Excel.
+                config: Some(serde_json::to_value(job)?),
             };
 
             let logging_id = self.logging.store(logging_entity).await?;
             let import_load_registry = self.import_load_registry.get(&import_config.loader)?;
 
             let dataset = self.import_datasetV1.get(&import_config.dataset)?;
-            let key = &import_config.key;
+            let download_url = if import_config.data_source_type == "buffer" {
+                let key = &import_config.key;
+                let payload_download_url = vec![key.clone()];
+                let get_file = self
+                    .grpc_service
+                    .s3_facilitator_grpc
+                    .get_download_url(payload_download_url)
+                    .await?;
+                let items_download = get_file.into_inner().items;
+                tracing::info!("items_download: {:?}", items_download);
 
-            let payload_download_url = vec![key.clone()];
-            let get_file = self
-                .grpc_service
-                .s3_facilitator_grpc
-                .get_download_url(payload_download_url)
-                .await?;
+                if items_download.is_empty() {
+                    tracing::error!("No download URL returned");
+                    return Err(anyhow::anyhow!("No download URL returned"));
+                }
 
-            let items_download = get_file.into_inner().items;
-            tracing::info!("items_download: {:?}", items_download);
-
-            if items_download.is_empty() {
-                tracing::error!("No download URL returned");
-                return Err(anyhow::anyhow!("No download URL returned"));
-            }
-
-            let download_url = items_download[0].url.clone();
+                items_download[0].url.clone()
+            } else {
+                // Sementara proses stream memakai workbook yang sudah ada di root
+                // untuk pengecekan lokal, tanpa upload atau request URL baru.
+                "template_import_v35.xlsx".to_string()
+            };
             let import_pipeline = self.import_pipeline.get(&import_config.pipeline)?;
             let dataset_config = ImportDatasetConfig {
                 where_fields: None,
@@ -505,7 +552,7 @@ impl Orchestrator for ImportOrchestrator {
                     .process_buffer_mode(
                         &download_url,
                         import_pipeline.as_ref(),
-                        dataset.as_ref(), // Dipasang di sini
+                        dataset.as_ref(),
                         &logging_id,
                         &dataset_config,
                         import_load_registry.as_ref(),
@@ -537,7 +584,7 @@ impl Orchestrator for ImportOrchestrator {
                     .process_stream_mode(
                         &download_url,
                         import_pipeline.as_ref(),
-                        dataset.as_ref(), // Dipasang di sini
+                        dataset.as_ref(),
                         &logging_id,
                         &dataset_config,
                         import_load_registry.as_ref(),

@@ -74,7 +74,7 @@ jobseekerPipeline(
     // ═══════════════════════════════════════════════════════════════
     // RUNTIME VALIDATION
     // ═══════════════════════════════════════════════════════════════
-    enableHealthCheck: true,                 // Post-deploy health check
+    enableHealthCheck: false,                 // Post-deploy health check
     healthEndpoint: '/healthz',      // Spring Boot: /actuator/health, Node.js: /health
     healthCheckRetries: 5,
     healthCheckInterval: 10,

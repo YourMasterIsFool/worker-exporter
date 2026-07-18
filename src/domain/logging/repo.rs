@@ -1,7 +1,18 @@
-use crate::domain::logging::entity::{LoggingEntity, LoggingStatus};
+use crate::{
+    core::pagination::{Paginated, PaginationQuery},
+    domain::logging::entity::{LoggingEntity, LoggingFilter, LoggingSort, LoggingStatus},
+};
+
+#[derive(Clone, Debug)]
+pub struct ListLoggingRequest {
+    pub pagination: PaginationQuery,
+    pub filter: LoggingFilter,
+    pub sort: Vec<LoggingSort>,
+}
 
 #[async_trait::async_trait]
 pub trait LoggingRepo: Send + Sync {
+    async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<LoggingEntity>>;
     async fn store(&self, entity: LoggingEntity) -> anyhow::Result<String>;
     async fn update_current_chunk(&self, id: &str, current_chunk: i64) -> anyhow::Result<()>;
     async fn update_processed_count(&self, id: &str, processed_count: i64) -> anyhow::Result<()>;
@@ -16,5 +27,8 @@ pub trait LoggingRepo: Send + Sync {
     async fn update_status(&self, id: &str, status: LoggingStatus) -> anyhow::Result<()>;
     async fn update_error(&self, id: &str, error: Option<String>) -> anyhow::Result<()>;
     async fn update_download_url(&self, id: &str, url: String) -> anyhow::Result<()>;
-    async fn list_log_by_tenant_id(&self, tenant_id: &str) -> anyhow::Result<Vec<LoggingEntity>>;
+    async fn list_logs(
+        &self,
+        request: &ListLoggingRequest,
+    ) -> anyhow::Result<Paginated<LoggingEntity>>;
 }

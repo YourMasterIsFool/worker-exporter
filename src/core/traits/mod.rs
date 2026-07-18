@@ -11,4 +11,5 @@ pub mod publisher;
 pub mod strategy;
 pub mod templates;
 pub mod tenants;
+pub mod validator;
 pub mod writter;

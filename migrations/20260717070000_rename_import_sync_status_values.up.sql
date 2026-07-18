@@ -1,0 +1,2 @@
+ALTER TYPE import_sync_status RENAME VALUE 'SYNCED' TO 'SYNC';
+ALTER TYPE import_sync_status RENAME VALUE 'FAILED' TO 'SYNC_FAILED';

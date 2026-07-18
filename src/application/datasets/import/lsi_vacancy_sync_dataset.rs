@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
+use uuid::Uuid;
 
 use crate::{
     application::{
@@ -16,14 +17,17 @@ use crate::{
             WhereField,
         },
     },
+    infrastructure::loader::warehouse::warehouse_logging_import::WarehouseLoggingImport,
 };
 
 pub struct LsiVacancySyncDataset {
     pub source: Arc<SourceRegistry>,
     pub fetcher: Arc<DataFetcherJsonRegistry>,
+    pub import_logging: Arc<WarehouseLoggingImport>,
 }
 
 impl LsiVacancySyncDataset {
+    const ENTITY_TABLE: &'static str = "warehouse.ats_vacancy_temporary";
     const OLTP_MANAGED_COLUMNS: &'static [&'static str] =
         &["created_at", "updated_at", "deleted_at", "created_by"];
 
@@ -152,6 +156,35 @@ impl LsiVacancySyncDataset {
 
         Ok((columns, values))
     }
+
+    async fn only_valid_master_rows(
+        &self,
+        logging_id: &str,
+        master_rows: Vec<Value>,
+    ) -> Result<Vec<Value>> {
+        let logging_id = Uuid::parse_str(logging_id)?;
+        let entity_ids = master_rows
+            .iter()
+            .filter_map(|row| row.get("id")?.as_str())
+            .filter_map(|value| Uuid::parse_str(value).ok())
+            .collect::<Vec<_>>();
+        let valid_ids = self
+            .import_logging
+            .valid_entity_ids(logging_id, Self::ENTITY_TABLE, &entity_ids)
+            .await?
+            .into_iter()
+            .collect::<HashSet<_>>();
+
+        Ok(master_rows
+            .into_iter()
+            .filter(|row| {
+                row.get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .is_some_and(|id| valid_ids.contains(&id))
+            })
+            .collect())
+    }
     /// Resolver utama untuk menarik data dari fetcher berdasarkan ID lowongan
     #[tracing::instrument(
         skip(self, ids, result),
@@ -230,12 +263,25 @@ impl SyncDataset for LsiVacancySyncDataset {
         payload: &SyncPayloadDataset,
         master_rows: Vec<Value>,
     ) -> Result<SycnTableResult> {
+        let logging_id = Self::resolve_logging_id(payload, &master_rows);
+        let master_rows = self
+            .only_valid_master_rows(&logging_id, master_rows)
+            .await?;
+
+        if master_rows.is_empty() {
+            return Ok(SycnTableResult {
+                config: payload.config.clone(),
+                sources: SourceSyncConfig {
+                    sources: HashMap::new(),
+                },
+            });
+        }
+
         let ids: Vec<String> = master_rows
             .iter()
             .filter_map(|r| r.get("id")?.as_str().map(|s| s.to_string()))
             .collect();
 
-        let logging_id = Self::resolve_logging_id(payload, &master_rows);
         let (master_columns, master_values) =
             self.resolve_table("ATS_VACANCY", &master_rows, &logging_id)?;
 

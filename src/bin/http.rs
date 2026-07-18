@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 
-use worker_exporter::application::presentation::http::list_logging_http::list_log_by_tenant_id_http;
 use worker_exporter::application::presentation::http::healthz_http::healthz_http;
+use worker_exporter::application::presentation::http::list_logging_http::{
+    get_import_logging_detail_http, list_log_by_tenant_id_http,
+};
 use worker_exporter::application::presentation::http::payload_generated_import_template::generated_import_template_http;
 use worker_exporter::application::presentation::http::post_detail_file_http::post_detail_file_http;
 
@@ -32,6 +34,10 @@ fn create_app(state: Arc<AppState>) -> Router {
         .route("/healthz", axum::routing::get(healthz_http))
         .route("/detail-file", post(post_detail_file_http))
         .route("/loggings", post(list_log_by_tenant_id_http))
+        .route(
+            "/loggings/:logging_id/import-detail",
+            get(get_import_logging_detail_http),
+        )
         .route("/generated-template", post(generated_import_template_http))
         .route("/test-import", post(test_import_http))
         .with_state(state) // Axum sekarang membagikan Arc<AppState> yang cocok dengan handler

@@ -47,7 +47,11 @@ impl WritterRegistry {
 }
 pub fn build_writter_registry() -> WritterRegistry {
     let mut registry = WritterRegistry::new();
-    registry.register("csv", || Box::new(CsvExporter::new()));
-    registry.register("excel", || Box::new(ExcelExporter::new()));
+    registry
+        .register("csv", || Box::new(CsvExporter::new()))
+        .expect("failed registry csv");
+    registry
+        .register("excel", || Box::new(ExcelExporter::new()))
+        .expect("failed registry excel");
     registry
 }

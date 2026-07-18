@@ -33,7 +33,9 @@ use crate::{
                     field::IngestionFormFieldSource, template::IngestionFormTemplateSource,
                     template_detail::IngestionFormTemplateDetailSource,
                 },
-                vacancy::vacancy::AtsVacancySource,
+                vacancy::{
+                    vacancy::AtsVacancySource, vacancy_custom_field::OltpVacancyCustomFieldSource,
+                },
             },
             organization::{
                 core::{
@@ -103,6 +105,20 @@ pub fn build_data_fetcher_json_registry(
     registry.register(
         "ats_vacancy_fetcher",
         Arc::new(AtsVacancySource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "OLTP_VACANCY_CUSTOM_FIELD",
+        Arc::new(OltpVacancyCustomFieldSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "VACANCY_CUSTOM_FIELD",
+        Arc::new(OltpVacancyCustomFieldSource {
             pool: manager.ats.clone(),
         }),
     );

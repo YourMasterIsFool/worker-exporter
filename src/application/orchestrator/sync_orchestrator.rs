@@ -95,9 +95,24 @@ impl Orchestrator for SyncOrchestrator {
                 self.logging
                     .update_processed_count(&logging_id, processed_count)
                     .await?;
-                self.logging
-                    .update_status(&logging_id, LoggingStatus::SyncSuccess)
-                    .await?;
+
+                // The aggregator sets PARTIAL_SYNC when some import entities
+                // were invalid, and SYNC_FAILED when none was eligible.  Do
+                // not overwrite those meaningful aggregate outcomes with a
+                // blanket success after the runner returns normally.
+                let final_status = self
+                    .logging
+                    .find_by_id(&logging_id)
+                    .await?
+                    .map(|logging| logging.status);
+                if !matches!(
+                    final_status.as_deref(),
+                    Some("PARTIAL_SYNC") | Some("SYNC_FAILED")
+                ) {
+                    self.logging
+                        .update_status(&logging_id, LoggingStatus::SyncSuccess)
+                        .await?;
+                }
 
                 tracing::info!(msg_id = %msg_id, processed_count, "sync dataset formatted");
                 Ok(())

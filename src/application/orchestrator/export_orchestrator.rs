@@ -168,8 +168,12 @@ impl Orchestrator for ExportOrchestrator {
             if let Some(filters) = &job.filters {
                 job_filter.extend(filters.clone());
             }
-            let mut cursor: Option<String> =
-                Some(dataset.as_ref().get_min_cursor(Some(job_filter.clone())).await?);
+            let mut cursor: Option<String> = Some(
+                dataset
+                    .as_ref()
+                    .get_min_cursor(Some(job_filter.clone()))
+                    .await?,
+            );
 
             let expor_runner = ExportRunner::run(
                 dataset.as_ref(),

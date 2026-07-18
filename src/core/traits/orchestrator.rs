@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::types::ValidationConfig;
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterColumn {
     pub name: String,
@@ -59,12 +61,21 @@ pub struct ImporterColumn {
     pub header: String,
     pub column: String,
     pub fetcher: Option<String>,
+    #[serde(default)]
+    pub template: Option<serde_json::Value>,
     pub type_data: Option<TypeDataEnum>,
     pub is_custom: bool,
-    pub fetcher_field_filter: Option<String>, 
+    pub fetcher_field_filter: Option<String>,
     pub fetcher_field_key: Option<String>,
     pub fetcher_key: Option<String>,
     pub casting: Option<crate::core::types::CastingEnum>,
+    #[serde(
+        default,
+        alias = "validations",
+        alias = "validation_config",
+        alias = "validationConfig"
+    )]
+    pub validation_rules: Option<Vec<ValidationConfig>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -94,18 +105,16 @@ pub struct ImporterConfig {
     pub data_source_type: String,
     pub pipeline: String,
     pub loader: String,
+    #[serde(alias = "main_table")]
     pub master_table: String,
     pub primary_column: String,
     pub sequential_table: Option<Vec<SequentialTable>>,
     pub fetcher_caching: Option<Vec<String>>,
-    
+
     // start row for reading excel
     // example start from row 1
     pub start_row: Option<u64>,
-    pub permission_key: Option<Vec<String>>
-
-
-
+    pub permission_key: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -113,7 +122,7 @@ pub struct OrchestratorJob {
     pub(crate) tenant_id: String,
     pub(crate) email: String,
     pub(crate) actor_id: String,
-    pub(crate)permissions_key: Option<Vec<String>>,
+    pub(crate) permissions_key: Option<Vec<String>>,
 
     pub(crate) orchestrator_name: String,
     pub(crate) export_config: Option<ExporterConfig>,

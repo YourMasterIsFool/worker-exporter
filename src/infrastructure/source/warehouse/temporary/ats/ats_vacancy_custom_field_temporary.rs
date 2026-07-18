@@ -4,14 +4,14 @@ use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{FromRow, Postgres, QueryBuilder};
+use sqlx::FromRow;
 use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
     core::{
         traits::{
-            etl::{fetch_data_json, DataFetcherJson},
+            etl::DataFetcherJson,
             extractor::{
                 build_query_trait::BuildTableTrait,
                 source_incremental_extract::SourceIncrementalExtract,
@@ -23,6 +23,7 @@ use crate::{
     infrastructure::{
         db::warehouse_client::WarehouseClient, loader::warehouse::types::WarehouseTemporaryTable,
     },
+    utils::{extract_temporary_rows, fetch_temporary_rows},
 };
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
@@ -88,19 +89,11 @@ impl DataFetcherJson for AtsVacancyCustomFieldTemporarySource {
         &self,
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
-        let sql = format!(
-            " SELECT {} from {} ",
-            self.columns().join(", "),
-            self.table().table_name()
-        );
-
-        let mut qb = QueryBuilder::new(&sql);
-
-        fetch_data_json::<AtsVacancyCustomFieldTemporaryModel>(
-            &mut qb,
-            filters,
+        fetch_temporary_rows::<AtsVacancyCustomFieldTemporaryModel>(
             &self.pool.pool,
-            None,
+            self.table().table_name(),
+            self.columns(),
+            filters,
         )
         .await
     }
@@ -114,29 +107,14 @@ impl SourceIncrementalExtract for AtsVacancyCustomFieldTemporarySource {
         limit: i64,
         _strategy_enum: &LoadEnum,
     ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
-        let sql_query = format!(
-            "SELECT {} FROM {}",
-            self.columns().join(","),
-            self.table().table_name()
-        );
-
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
-
-        if let Some(c) = cursor {
-            qb.push(" WHERE id > ").push_bind(c);
-        }
-        qb.push(" LIMIT ").push_bind(limit);
-
-        let result = qb
-            .build_query_as::<AtsVacancyCustomFieldTemporaryModel>()
-            .fetch_all(&self.pool.pool)
-            .await?;
-        let last_cursor = result.last().map(|last| last.id);
-        let rows = result
-            .iter()
-            .map(serde_json::to_value)
-            .collect::<Result<Vec<serde_json::Value>, _>>()?;
-
-        Ok((rows, last_cursor))
+        extract_temporary_rows::<AtsVacancyCustomFieldTemporaryModel, _>(
+            &self.pool.pool,
+            self.table().table_name(),
+            self.columns(),
+            cursor,
+            limit,
+            |row| row.id,
+        )
+        .await
     }
 }

@@ -4,7 +4,7 @@ use chrono::{NaiveDate, NaiveDateTime, Utc};
 use futures_util::future::join_all;
 use moka::future::Cache;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tracing::info;
 use uuid::Uuid;
 
@@ -17,10 +17,10 @@ use crate::{
         },
         types::{
             CastingEnum, ImportDatasetConfig, ImportRow, ImportTableResult, TableStrategy,
-            WhereField,
+            WhereField, IMPORT_FETCHER_ERROR_RESULT_KEY,
         },
     },
-    utils::value::calamine_to_json,
+    utils::{resolve_custom_field_key, resolve_custom_field_typed_value, value::calamine_to_json},
 };
 
 use std::{
@@ -93,6 +93,20 @@ impl DynamicDatasetV1 {
 }
 
 impl DynamicDatasetV1 {
+    fn normalized_lookup_token(value: &str) -> String {
+        value.trim().to_lowercase()
+    }
+
+    fn lookup_operator(casting: Option<&CastingEnum>) -> &'static str {
+        match casting {
+            Some(CastingEnum::Uuid)
+            | Some(CastingEnum::Number)
+            | Some(CastingEnum::Date)
+            | Some(CastingEnum::Enum(_)) => "=",
+            Some(CastingEnum::Varchar) | None => "ILIKE",
+        }
+    }
+
     async fn resolve_fetcher(
         &self,
         value: &str,
@@ -102,11 +116,15 @@ impl DynamicDatasetV1 {
         use_cache: bool,
         cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<Option<serde_json::Value>> {
-        // 🔥 Perbaikan 1: Bersihkan spasi dan normalkan case agar key konsisten
+        // Bersihkan spasi dan normalkan case agar cache lookup tidak
+        // membedakan "Sales", "sales", atau "SALES".
         let clean_value = value.trim();
         let clean_fetcher = fetcher_name.trim().to_uppercase();
-
-        let cache_key = format!("{}:{}", clean_fetcher, clean_value);
+        let cache_key = format!(
+            "{}:{}",
+            clean_fetcher,
+            Self::normalized_lookup_token(clean_value)
+        );
         tracing::info!("Mengecek cache key: {}", cache_key);
 
         // 1. Jika diperbolehkan di-cache oleh payload JSON, cek cache hit dulu
@@ -122,7 +140,7 @@ impl DynamicDatasetV1 {
         // 2. Jika cache miss atau tidak masuk whitelist, fetch asli ke DB/gRPC
         let filter = vec![WhereField {
             field: fetcher_field_key.to_string(),
-            operator: "=".into(),
+            operator: Self::lookup_operator(casting.as_ref()).into(),
             casting,
             values: Some(vec![clean_value.into()]), // Gunakan clean_value
             value: None,
@@ -145,42 +163,6 @@ impl DynamicDatasetV1 {
         }
 
         Ok(None)
-    }
-}
-
-fn value_to_uuid(value: &Value) -> Option<Uuid> {
-    value.as_str().and_then(|s| Uuid::parse_str(s).ok())
-}
-
-fn value_to_text(value: &Value) -> Option<String> {
-    match value {
-        Value::Null => None,
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        Value::Bool(b) => Some(b.to_string()),
-        other => Some(other.to_string()),
-    }
-}
-
-fn map_value_to_field(field_type: Option<TypeDataEnum>, val: &Value, cf: &mut CustomFields) {
-    match field_type {
-        Some(TypeDataEnum::Uuid) => cf.value_id = value_to_uuid(val),
-        Some(TypeDataEnum::Number) => {
-            let numeric_val = val
-                .as_f64()
-                .or_else(|| val.as_str().and_then(|s| s.trim().parse::<f64>().ok()));
-
-            cf.value_number = numeric_val.and_then(|f| BigDecimal::try_from(f).ok());
-        }
-        Some(TypeDataEnum::Boolean) => cf.value_bool = val.as_bool(),
-        Some(TypeDataEnum::Date) => {
-            cf.value_date = val
-                .as_str()
-                .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        }
-        Some(TypeDataEnum::Text) | None => {
-            cf.value_text = value_to_text(val);
-        }
     }
 }
 
@@ -221,6 +203,7 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
         let mut master_row_accumulator: HashMap<String, Value> = HashMap::new();
         let mut sequential_rows_accumulator: HashMap<String, Vec<HashMap<String, Value>>> =
             HashMap::new();
+        let mut fetcher_errors = Map::new();
 
         master_row_accumulator.insert(
             primary_column.clone(),
@@ -231,7 +214,10 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
         // STAGE 1: EXTRACT, ASYNC FETCH & SPLIT MULTIPLE TOKENS
         // =========================================================
         for (index, field) in fields.iter().enumerate() {
-            let cell_data = calamine_to_json(&rows[index]);
+            // Workbook dapat memiliki kolom lebih sedikit daripada konfigurasi
+            // ketika field trailing bersifat opsional. Perlakukan cell yang
+            // hilang sebagai NULL agar import tidak panic.
+            let cell_data = rows.get(index).map(calamine_to_json).unwrap_or(Value::Null);
 
             let raw_tokens: Vec<String> = match &cell_data {
                 Value::String(s) if s.contains(',') => s
@@ -293,9 +279,24 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
                                 resolved_meta_list.push(meta_obj);
                             }
                             Ok(None) => {
+                                let message = Value::String(format!(
+                                    "Data fetcher '{}' tidak menemukan nilai '{}'",
+                                    fetcher_name, raw_tokens[idx]
+                                ));
+                                let errors = fetcher_errors
+                                    .entry(field.header.clone())
+                                    .or_insert_with(|| Value::Array(Vec::new()));
+                                if let Value::Array(errors) = errors {
+                                    if !errors.contains(&message) {
+                                        errors.push(message);
+                                    }
+                                }
                                 tracing::warn!(
-                                    "Data tidak ditemukan oleh fetcher '{}'",
-                                    fetcher_name
+                                    header = %field.header,
+                                    column = %field.column,
+                                    fetcher = %fetcher_name,
+                                    lookup_value = %raw_tokens[idx],
+                                    "Fetcher tidak menemukan data; field akan menghasilkan NULL"
                                 );
                             }
                             Err(e) => return Err(e),
@@ -320,6 +321,16 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
             } else {
                 resolved_meta_list.into_iter().next().unwrap_or(Value::Null)
             };
+
+            tracing::info!(
+                header = %field.header,
+                column = %field.column,
+                fetcher = ?field.fetcher,
+                raw_value = ?cell_data,
+                resolved_value = ?final_data_value,
+                resolved_meta = ?final_meta_value,
+                "Resolved import field before routing to temporary tables"
+            );
 
             // =========================================================
             // STAGE 2: PIVOTING & ROUTING BERDASARKAN SKEMA STRATEGI
@@ -361,7 +372,7 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
                             let mut custom_field_row = CustomFields {
                                 id: Uuid::now_v7(),
                                 meta: Some(final_meta_value.clone()).filter(|v| !v.is_null()),
-                                field_key: column.to_string(),
+                                field_key: resolve_custom_field_key(field, column),
                                 field_type,
                                 group_id: tenant_id,
                                 tenant_id,
@@ -372,11 +383,17 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
                                 ..Default::default()
                             };
 
-                            map_value_to_field(
-                                field.type_data.clone(),
+                            let typed_value = resolve_custom_field_typed_value(
+                                field.type_data.as_ref(),
                                 &final_data_value,
-                                &mut custom_field_row,
+                                &final_meta_value,
+                                field.fetcher_key.as_deref(),
                             );
+                            custom_field_row.value_text = typed_value.value_text;
+                            custom_field_row.value_number = typed_value.value_number;
+                            custom_field_row.value_id = typed_value.value_id;
+                            custom_field_row.value_bool = typed_value.value_bool;
+                            custom_field_row.value_date = typed_value.value_date;
 
                             let entries = sequential_rows_accumulator
                                 .entry(table.to_string())
@@ -500,6 +517,17 @@ impl ImporterDatasetV1 for DynamicDatasetV1 {
                     strategy: current_strategy, // 🔥 Menyimpan tipe data enum HasMany atau Eav
                     columns: seq_columns,
                     values: matrix_values,
+                },
+            );
+        }
+
+        if !fetcher_errors.is_empty() {
+            result.insert(
+                IMPORT_FETCHER_ERROR_RESULT_KEY.to_string(),
+                ImportTableResult {
+                    strategy: TableStrategy::Eav,
+                    columns: vec!["errors".to_string()],
+                    values: vec![vec![Value::Object(fetcher_errors)]],
                 },
             );
         }

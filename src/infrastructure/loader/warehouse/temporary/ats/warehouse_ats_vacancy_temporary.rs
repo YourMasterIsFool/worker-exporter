@@ -13,8 +13,12 @@ use crate::{
     },
     domain::logging,
     infrastructure::{
-        db::warehouse_client::WarehouseClient, ingestion::master,
-        loader::warehouse::types::WarehouseTemporaryTable,
+        db::warehouse_client::WarehouseClient,
+        ingestion::master,
+        loader::warehouse::{
+            types::WarehouseTemporaryTable,
+            warehouse_logging_import::{build_import_entity_states, WarehouseLoggingImport},
+        },
     },
     utils::{load_query::build_query, value::reformated_value},
 };
@@ -104,7 +108,54 @@ impl WarehouseAtsVacancyTemporaryLoader {
         b: &mut sqlx::query_builder::Separated<'a, '_, Postgres, &str>,
         val: &Value,
         col_name: &str,
+        is_numeric: bool,
     ) {
+        // Kolom metadata pada tabel temporary bertipe JSONB. Nilai fetcher
+        // biasanya berupa object, tetapi fallback string juga harus dibungkus
+        // sebagai JSON agar SQLx tidak mengirimkannya sebagai TEXT.
+        if col_name.ends_with("_meta") {
+            if val.is_null() {
+                b.push_bind(None::<sqlx::types::Json<Value>>);
+            } else {
+                b.push_bind(sqlx::types::Json(val.clone()));
+            }
+            return;
+        }
+
+        // Ikuti `type_data: NUMBER` pada konfigurasi import. Ini penting
+        // terutama untuk nilai NULL: `None::<String>` akan dikirim sebagai
+        // TEXT dan PostgreSQL menolaknya untuk kolom integer/numeric.
+        if is_numeric {
+            match val {
+                Value::Null => {
+                    b.push_bind(None::<i64>);
+                }
+                Value::Number(number) => {
+                    if let Some(value) = number.as_i64() {
+                        b.push_bind(value);
+                    } else if let Some(value) = number.as_f64() {
+                        b.push_bind(value);
+                    } else {
+                        b.push_bind(None::<i64>);
+                    }
+                }
+                Value::String(value) => {
+                    let value = value.trim();
+                    if let Ok(value) = value.parse::<i64>() {
+                        b.push_bind(value);
+                    } else if let Ok(value) = value.parse::<f64>() {
+                        b.push_bind(value);
+                    } else {
+                        b.push_bind(None::<i64>);
+                    }
+                }
+                _ => {
+                    b.push_bind(None::<i64>);
+                }
+            }
+            return;
+        }
+
         if col_name == "keywords" {
             if let Value::Array(arr) = val {
                 let keywords = arr
@@ -206,6 +257,21 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
         );
         let master_table = &config.import_config.master_table;
         let seq_tables = &config.import_config.sequential_table;
+        let master_numeric_columns = config
+            .import_config
+            .fields
+            .iter()
+            .filter(|field| {
+                matches!(
+                    field.type_data,
+                    Some(crate::core::traits::orchestrator::TypeDataEnum::Number)
+                )
+            })
+            .flat_map(|field| field.column.split('|'))
+            .filter_map(|path| path.trim().split_once(':'))
+            .filter(|(table, _)| *table == master_table)
+            .map(|(_, column)| column.to_string())
+            .collect::<HashSet<_>>();
 
         let mut tx = self.client.pool.begin().await?;
         let mut master_affected_rows = 0;
@@ -213,10 +279,29 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
         // =========================================================
         // STAGE 1: BULK INSERT MASTER TABLE (Menggunakan Matrix)
         // =========================================================
-        for row_map in rows {
+        for (row_index, row_map) in rows.iter().enumerate() {
             if let Some(table_data) = row_map.get(master_table) {
                 // 🔥 Menggunakan TableStrategy::Main untuk validasi
                 if table_data.strategy == TableStrategy::Main && !table_data.values.is_empty() {
+                    let master_payload = table_data
+                        .values
+                        .iter()
+                        .map(|values| {
+                            table_data
+                                .columns
+                                .iter()
+                                .cloned()
+                                .zip(values.iter().cloned())
+                                .collect::<HashMap<String, Value>>()
+                        })
+                        .collect::<Vec<_>>();
+                    info!(
+                        logging_id = logging_id,
+                        row_index,
+                        master_table = %master_table,
+                        master_payload = ?master_payload,
+                        "Temporary loader master payload before INSERT"
+                    );
                     let mut qb: QueryBuilder<Postgres> =
                         QueryBuilder::new(format!("INSERT INTO {} (", master_table));
                     let mut separated = qb.separated(", ");
@@ -229,7 +314,13 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
                     qb.push_values(&table_data.values, |mut b, row_values| {
                         master_affected_rows += 1;
                         for (index, val) in row_values.iter().enumerate() {
-                            self.bind_dynamic_value(&mut b, val, &table_data.columns[index]);
+                            let column = &table_data.columns[index];
+                            self.bind_dynamic_value(
+                                &mut b,
+                                val,
+                                column,
+                                master_numeric_columns.contains(column),
+                            );
                         }
                     });
 
@@ -298,8 +389,22 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
                                 }
 
                                 if !custom_fields_to_insert.is_empty() {
+                                    let custom_logging_id =
+                                        Uuid::parse_str(logging_id).map_err(|error| {
+                                            anyhow::anyhow!(
+                                            "logging_id '{}' tidak valid untuk custom field: {}",
+                                            logging_id,
+                                            error
+                                        )
+                                        })?;
+                                    info!(
+                                        logging_id = logging_id,
+                                        target_table = %target_table,
+                                        custom_fields = ?custom_fields_to_insert,
+                                        "Temporary loader custom-field payload before INSERT"
+                                    );
                                     let mut qb_custom = QueryBuilder::new(format!(
-                                        "INSERT INTO {} (id, tenant_id, group_id, parent_id, field_key, field_type, meta, reference_module, value_text, value_number, value_id, value_bool, value_date, created_at, updated_at) ",
+                                        "INSERT INTO {} (id, tenant_id, group_id, parent_id, field_key, field_type, meta, reference_module, value_text, value_number, value_id, value_bool, value_date, created_at, updated_at, logging_id) ",
                                         target_table
                                     ));
 
@@ -318,7 +423,8 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
                                             .push_bind(cf.value_bool)
                                             .push_bind(cf.value_date)
                                             .push_bind(cf.created_at)
-                                            .push_bind(cf.updated_at);
+                                            .push_bind(cf.updated_at)
+                                            .push_bind(custom_logging_id);
                                     });
 
                                     if let Err(e) = qb_custom.build().execute(&mut *tx).await {
@@ -354,6 +460,7 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
                                             &mut b,
                                             val,
                                             &table_data.columns[index],
+                                            false,
                                         );
                                     }
                                 });
@@ -380,6 +487,11 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
                 }
             }
         }
+
+        let entity_states = build_import_entity_states(rows, logging_id, config)?;
+        WarehouseLoggingImport::new(self.client.clone())
+            .bulk_upsert_with_tx(&mut tx, &entity_states)
+            .await?;
 
         tx.commit().await?;
 

@@ -1,19 +1,19 @@
-use std::{path::Path, sync::Arc, vec};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use anyhow::Context;
 use futures_util::future::try_join_all;
+use moka::future::Cache;
 use rust_xlsxwriter::{
     DataValidation, Format, FormatAlign, FormatBorder, Formula, Workbook, Worksheet,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{
-    application::fetch_source_regitry::DataFetcherJsonRegistry,
-    core::types::{CastingEnum, WhereField},
-};
+use crate::{application::fetch_source_regitry::DataFetcherJsonRegistry, core::types::WhereField};
 
 pub struct GeneratedEmailTemplateUsecase {
     pub fetcher: Arc<DataFetcherJsonRegistry>,
+    lookup_cache: Cache<String, Arc<[LookupRow]>>,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -31,53 +31,144 @@ pub struct ExampleValue {
     pub value_type: Option<ValueType>,
     pub fetcher: Option<String>,
     pub filter: Option<Vec<WhereField>>,
+    #[serde(default, alias = "usingCache")]
+    pub using_cache: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TemplateHeader {
+    pub header: String,
+    #[serde(default, alias = "backgroundColor")]
+    pub background_color: Option<String>,
 }
 
 /// Representasi satu baris lookup table (id + name)
+#[derive(Clone)]
 struct LookupRow {
     id: String,
     name: String,
 }
 
-struct MasterConfig {
-    title: String,
-    fetcher_key: String,
-    filter: Option<Vec<WhereField>>,
-    // Field opsional jika nama kolom di JSON bukan "name"
-    name_field: &'static str,
-}
 impl GeneratedEmailTemplateUsecase {
-    pub async fn execute(
-        &self,
-        headers: &[String],
-        example_values: &[ExampleValue],
-        file_path: &str,
-        tenant_id: &str,
-    ) -> anyhow::Result<()> {
-        let path = Path::new(&file_path);
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub fn new(fetcher: Arc<DataFetcherJsonRegistry>) -> Self {
+        Self {
+            fetcher,
+            lookup_cache: Cache::builder()
+                .time_to_live(Duration::from_secs(5 * 60))
+                .max_capacity(100)
+                .build(),
+        }
+    }
+
+    fn lookup_cache_key(
+        fetcher_name: &str,
+        filters: &Option<Vec<WhereField>>,
+        display_field: &str,
+    ) -> String {
+        let mut filters = filters.clone().unwrap_or_default();
+        for filter in &mut filters {
+            if let Some(values) = &mut filter.values {
+                values.sort();
             }
         }
+        filters.sort_by(|left, right| {
+            serde_json::to_string(left)
+                .unwrap_or_default()
+                .cmp(&serde_json::to_string(right).unwrap_or_default())
+        });
 
+        format!(
+            "generated-import-template:{}:{}:{}",
+            fetcher_name.trim().to_uppercase(),
+            display_field,
+            serde_json::to_string(&filters).unwrap_or_default()
+        )
+    }
+
+    async fn fetch_lookup_rows(
+        &self,
+        fetcher_name: &str,
+        filters: Option<Vec<WhereField>>,
+        display_field: &str,
+        using_cache: bool,
+    ) -> anyhow::Result<Arc<[LookupRow]>> {
+        if !using_cache {
+            tracing::debug!(
+                fetcher = fetcher_name,
+                using_cache,
+                "Template lookup cache dilewati"
+            );
+            let rows = self.fetcher.get(fetcher_name)?.fetch(filters).await?;
+            return Ok(lookup_rows(rows, fetcher_name, display_field));
+        }
+
+        let cache_key = Self::lookup_cache_key(fetcher_name, &filters, display_field);
+        if let Some(rows) = self.lookup_cache.get(&cache_key).await {
+            tracing::info!(fetcher = fetcher_name, "Template lookup cache hit");
+            return Ok(rows);
+        }
+
+        tracing::info!(fetcher = fetcher_name, "Template lookup cache miss");
+        let fetcher = self.fetcher.get(fetcher_name)?;
+        let fetcher_name = fetcher_name.to_owned();
+        let display_field = display_field.to_owned();
+        self.lookup_cache
+            .try_get_with(cache_key, async move {
+                let rows = fetcher.fetch(filters).await?;
+                Ok::<_, anyhow::Error>(lookup_rows(rows, &fetcher_name, &display_field))
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
+    pub async fn execute(
+        &self,
+        headers: &[TemplateHeader],
+        example_values: &[ExampleValue],
+        payload: serde_json::Value,
+    ) -> anyhow::Result<Vec<u8>> {
+        log_template_memory(
+            "before_workbook",
+            headers.len(),
+            example_values.len(),
+            0,
+            0,
+            0,
+        );
         let mut workbook = Workbook::new();
+
+        // check validation tenant_id must be exists
+        if payload.get("tenant_id").is_none() {
+            return Err(anyhow::anyhow!(
+                "tenant_id not found; please include tenant_id in payload"
+            ));
+        }
+
+        payload
+            .get("tenant_id")
+            .and_then(|value| value.as_str())
+            .context("tenant_id is required and must be a string")?;
 
         // ===== Sheet 1: main_import =====
         {
             let main_sheet = workbook.add_worksheet().set_name("main_import")?;
-            let header_format = Format::new()
-                .set_bold()
-                .set_border(FormatBorder::Thin)
-                .set_align(FormatAlign::Center);
             let example_format = Format::new().set_border(FormatBorder::Thin);
 
             for (col, header) in headers.iter().enumerate() {
                 let column = col as u16;
-                main_sheet.write_string_with_format(0, column, header, &header_format)?;
+                let mut header_format = Format::new()
+                    .set_bold()
+                    .set_border(FormatBorder::Thin)
+                    .set_align(FormatAlign::Center);
+
+                if let Some(background_color) = header.background_color.as_deref() {
+                    header_format = header_format.set_background_color(background_color);
+                }
+
+                main_sheet.write_string_with_format(0, column, &header.header, &header_format)?;
                 main_sheet.set_column_width(
                     column,
-                    (header.chars().count() as f64 + 2.0).clamp(14.0, 40.0),
+                    (header.header.chars().count() as f64 + 2.0).clamp(14.0, 40.0),
                 )?;
 
                 if let Some(example) = example_values.get(col) {
@@ -89,348 +180,118 @@ impl GeneratedEmailTemplateUsecase {
             }
         }
 
-        // ===== Fetch data master =====
-        let province_filter = vec![WhereField {
-            field: "level".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec!["adm1".into()]),
-            casting: Some(CastingEnum::Enum("geo_nodes_level_enum".into())),
-        }];
-        let city_filter = vec![WhereField {
-            field: "level".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec!["adm2".into()]),
-            casting: Some(CastingEnum::Enum("geo_nodes_level_enum".into())),
-        }];
+        // Master lookup sepenuhnya berasal dari `example_value` payload.
+        // Posisi entry wajib sama dengan `headers`, sehingga filter tidak dapat
+        // tertukar oleh konfigurasi master yang di-hard-code.
+        let lookup_fetches = try_join_all(example_values.iter().enumerate().filter_map(
+            |(header_index, example)| {
+                if !matches!(
+                    example.value_type,
+                    Some(ValueType::Select | ValueType::MultipleSelect)
+                ) {
+                    return None;
+                }
 
-        let district_filter = vec![WhereField {
-            field: "category_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec!["019ec96a-28f6-7481-9b37-167193f35d1c".into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
+                let fetcher_name = example
+                    .fetcher
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())?
+                    .to_owned();
+                let filters = example.filter.clone();
+                let using_cache = example.using_cache;
+                let display_field = lookup_display_field(&fetcher_name);
+                let title = headers
+                    .get(header_index)
+                    .map(|header| header.header.clone())
+                    .unwrap_or_else(|| fetcher_name.clone());
 
-        let subdistrict = vec![WhereField {
-            field: "level".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec!["adm4".into()]),
-            casting: Some(CastingEnum::Enum("geo_nodes_level_enum".into())),
-        }];
+                Some(async move {
+                    let rows = self
+                        .fetch_lookup_rows(
+                            &fetcher_name,
+                            filters.clone(),
+                            display_field,
+                            using_cache,
+                        )
+                        .await?;
+                    Ok::<_, anyhow::Error>((
+                        header_index,
+                        title,
+                        fetcher_name,
+                        filters,
+                        display_field,
+                        rows,
+                    ))
+                })
+            },
+        ));
 
-        let work_location_filter_group = vec![WhereField {
-            field: "category_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec!["019e95a5-f5f3-7dd8-952b-0ce16845d9bd".into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-        let work_location_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let organization_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let job_position_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let job_grade_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let job_level_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let employment_status_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let employee_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let onboarding_items_filter = vec![WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec![tenant_id.into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-
-        let region_filter = vec![WhereField {
-            field: "category_id".into(),
-            operator: "=".into(),
-            value: None,
-            values: Some(vec!["019eab84-3b62-70ee-8574-f13596ccce55".into()]),
-            casting: Some(CastingEnum::Uuid),
-        }];
-        let masters = vec![
-            MasterConfig {
-                title: "Province".into(),
-                fetcher_key: "MASTER_GEO".into(),
-                filter: Some(province_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "City".into(),
-                fetcher_key: "MASTER_GEO".into(),
-                filter: Some(city_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "District".into(),
-                fetcher_key: "MASTER_ITEMS".into(),
-                filter: Some(district_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "Work Location".into(),
-                fetcher_key: "ATTEDANCE_LOCATION".into(),
-                filter: Some(work_location_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "Work Location GROUP".into(),
-                fetcher_key: "MASTER_ITEMS".into(),
-                filter: Some(work_location_filter_group),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "Organization".into(),
-                fetcher_key: "ORGANIZATION".into(),
-                filter: Some(organization_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "Job Position".into(),
-                fetcher_key: "JOB_POSITION".into(),
-                filter: Some(job_position_filter),
-                name_field: "position_name",
-            },
-            MasterConfig {
-                title: "Region".into(),
-                fetcher_key: "MASTER_ITEMS".into(),
-                filter: Some(region_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "Job Grade".into(),
-                fetcher_key: "JOB_GRADE".into(),
-                filter: Some(job_grade_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "Job Level".into(),
-                fetcher_key: "JOB_LEVEL".into(),
-                filter: Some(job_level_filter),
-                name_field: "name",
-            },
-            MasterConfig {
-                title: "Employee".into(),
-                fetcher_key: "EMPLOYEE".into(),
-                filter: Some(employee_filter),
-                name_field: "full_name",
-            },
-            MasterConfig {
-                title: "Employment Status".into(),
-                fetcher_key: "EMPLOYMENT_STATUS".into(),
-                filter: Some(employment_status_filter),
-                name_field: "name",
-            },
-            // MasterConfig {
-            //     title: "Onboarding Items".into(),
-            //     fetcher_key: "ONBOARDING_ITEMS".into(),
-            //     filter: Some(onboarding_items_filter),
-            //     name_field: "group_name",
-            // },
-            MasterConfig {
-                title: "PRE ONBOARDING TEMPLATE".into(),
-                fetcher_key: "ONBOARDING_TEMPLATE".into(),
-                filter: Some(onboarding_items_filter),
-                name_field: "group_name",
-            },
-            MasterConfig {
-                title: "Stage Template".into(),
-                fetcher_key: "STAGE_TEMPLATE".into(),
-                filter: None,
-                name_field: "template_name",
-            },
-            // MasterConfig {
-            //     title: "Stage Template Detail".into(),
-            //     fetcher_key: "STAGE_TEMPLATE_DETAIL".into(),
-            //     filter: None,
-            //     name_field: "name",
-            // },
-            // MasterConfig {
-            //     title: "Requirement Stage Template".into(),
-            //     fetcher_key: "REQUIREMENT_STAGE_TEMPLATE".into(),
-            //     filter: None,
-            //     name_field: "template_name",
-            // },
-            // MasterConfig {
-            //     title: "Requirement Stage Template Detail".into(),
-            //     fetcher_key: "REQUIREMENT_STAGE_TEMPLATE_DETAIL".into(),
-            //     filter: None,
-            //     name_field: "name",
-            // },
-            MasterConfig {
-                title: "Form Field".into(),
-                fetcher_key: "FORM_FIELD".into(),
-                filter: None,
-                name_field: "name",
-            },
-            // MasterConfig {
-            //     title: "Form Template Detail".into(),
-            //     fetcher_key: "FORM_TEMPLATE_DETAIL".into(),
-            //     filter: None,
-            //     name_field: "name",
-            // },
-        ];
+        let lookups = lookup_fetches.await?;
+        let lookup_row_count = lookups
+            .iter()
+            .map(|(_, _, _, _, _, rows)| rows.len())
+            .sum::<usize>();
+        log_template_memory(
+            "after_lookup",
+            headers.len(),
+            example_values.len(),
+            lookup_row_count,
+            0,
+            0,
+        );
 
         let master_sheet = workbook.add_worksheet().set_name("master_template")?;
-        let master_fetches = masters.iter().map(|config| {
-            let fetcher = self.fetcher.get(&config.fetcher_key);
-            let filter = config.filter.clone();
-
-            async move {
-                let fetcher = fetcher?;
-                fetcher.fetch(filter).await
-            }
-        });
-        let master_data = try_join_all(master_fetches).await?;
-
-        for (idx, (config, raw_data)) in masters.iter().zip(master_data.iter()).enumerate() {
-            let rows: Vec<LookupRow> = raw_data
-                .iter()
-                .map(|row| LookupRow {
-                    id: row.get("id").map(value_to_string).unwrap_or_default(),
-                    name: row
-                        .get(config.name_field)
-                        .map(value_to_string)
-                        .unwrap_or_default(),
-                })
-                .filter(|row| !row.id.is_empty() && !row.name.is_empty())
-                .collect();
-
-            // 3 kolom per tabel: ID (x), Name (x+1), Gap (x+2)
-            let start_col = (idx * 3) as u16;
-
-            write_lookup_table(master_sheet, start_col, &config.title, &rows)?;
-
-            // Otomatis atur lebar untuk 2 kolom data tersebut
-            master_sheet.set_column_width(start_col, 22)?;
-            master_sheet.set_column_width(start_col + 1, 22)?;
-        }
-
-        // ===== Lookup dinamis dari example_value + dropdown di main_import =====
-        drop(master_sheet);
-        let dynamic_start = masters.len();
+        let mut lookup_ranges: HashMap<String, String> = HashMap::new();
+        let mut named_ranges = Vec::new();
         let mut validation_ranges = Vec::new();
+        let mut lookup_table_count = 0usize;
 
-        for (header_index, example) in example_values.iter().enumerate() {
-            if !matches!(
-                example.value_type,
-                Some(ValueType::Select | ValueType::MultipleSelect)
-            ) {
+        for (header_index, title, fetcher_name, filters, display_field, rows) in lookups {
+            let lookup_key = Self::lookup_cache_key(&fetcher_name, &filters, display_field);
+            if let Some(range_name) = lookup_ranges.get(&lookup_key) {
+                validation_ranges.push((header_index, range_name.clone()));
                 continue;
             }
-
-            let Some(fetcher_name) = example
-                .fetcher
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            else {
-                continue;
-            };
-
-            let fetcher = self.fetcher.get(fetcher_name)?;
-            let raw_data = fetcher.fetch(example.filter.clone()).await?;
-            let rows: Vec<LookupRow> = raw_data
-                .iter()
-                .map(|row| LookupRow {
-                    id: row.get("id").map(value_to_string).unwrap_or_default(),
-                    name: lookup_display_value(row, fetcher_name),
-                })
-                .filter(|row| !row.id.is_empty() && !row.name.is_empty())
-                .collect();
 
             if rows.is_empty() {
                 continue;
             }
 
-            let start_col = ((dynamic_start + header_index) * 3) as u16;
-            {
-                let master_sheet = workbook.worksheet_from_name("master_template")?;
-                write_lookup_table(master_sheet, start_col, fetcher_name, &rows)?;
-                master_sheet.set_column_width(start_col, 22)?;
-                master_sheet.set_column_width(start_col + 1, 28)?;
-            }
+            let start_col = (lookup_table_count * 3) as u16;
+            lookup_table_count += 1;
+            write_lookup_table(master_sheet, start_col, &title, &rows)?;
+            master_sheet.set_column_width(start_col, 22)?;
+            master_sheet.set_column_width(start_col + 1, 28)?;
 
             let range_name = format!("example_options_{header_index}");
             let display_column = excel_column_name(start_col + 1);
-            workbook.define_name(
-                &range_name,
-                &format!(
+            named_ranges.push((
+                range_name.clone(),
+                format!(
                     "='master_template'!${display_column}$3:${display_column}${}",
                     rows.len() + 2
                 ),
-            )?;
-            validation_ranges.push((
-                header_index,
-                range_name,
-                matches!(example.value_type, Some(ValueType::MultipleSelect)),
             ));
+            lookup_ranges.insert(lookup_key, range_name.clone());
+            validation_ranges.push((header_index, range_name));
+        }
+
+        drop(master_sheet);
+        for (range_name, formula) in named_ranges {
+            workbook.define_name(&range_name, &formula)?;
         }
 
         let main_sheet = workbook.worksheet_from_name("main_import")?;
-        for (header_index, range_name, is_multiple_select) in validation_ranges {
-            // Excel tidak mendukung native multi-select; multipleSelect tetap
-            // diberi dropdown single-select agar opsi tetap terlihat. Nilai
-            // multipleSelect dapat diisi manual sebagai "A,B".
+        for (header_index, range_name) in validation_ranges {
+            // Dropdown tetap tersedia sebagai bantuan input, tetapi Excel tidak
+            // boleh memblokir nilai manual. Ini membuat input `select` dan
+            // `multipleSelect` menerima perbedaan uppercase/lowercase maupun
+            // nilai yang diketik langsung oleh pengguna.
             let mut validation =
                 DataValidation::new().allow_list_formula(Formula::new(format!("={range_name}")));
-            if is_multiple_select {
-                // Excel's list validation sees "A,B" as one value and would
-                // reject it. The importer splits this value by comma, so do
-                // not block the valid multi-value input here.
-                validation = validation.show_error_message(false);
-            }
+            validation = validation.show_error_message(false);
+
             main_sheet.add_data_validation(
                 // Row 0 is the header. Row 1 is the first import row (the
                 // importer skips only the header), so validation must start
@@ -443,10 +304,65 @@ impl GeneratedEmailTemplateUsecase {
             )?;
         }
 
-        workbook.save(file_path)?;
-
-        Ok(())
+        log_template_memory(
+            "before_serialize",
+            headers.len(),
+            example_values.len(),
+            lookup_row_count,
+            0,
+            0,
+        );
+        let xlsx = workbook.save_to_buffer()?;
+        log_template_memory(
+            "after_serialize",
+            headers.len(),
+            example_values.len(),
+            lookup_row_count,
+            0,
+            xlsx.len(),
+        );
+        Ok(xlsx)
     }
+}
+
+fn log_template_memory(
+    stage: &'static str,
+    header_count: usize,
+    example_count: usize,
+    master_lookup_rows: usize,
+    dynamic_lookup_rows: usize,
+    xlsx_bytes: usize,
+) {
+    let rss_bytes = process_rss_bytes();
+    tracing::info!(
+        stage,
+        header_count,
+        example_count,
+        master_lookup_rows,
+        dynamic_lookup_rows,
+        xlsx_bytes,
+        rss_bytes = rss_bytes.unwrap_or_default(),
+        rss_available = rss_bytes.is_some(),
+        "Generated import template memory usage"
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn process_rss_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let kb = status
+        .lines()
+        .find(|line| line.starts_with("VmRSS:"))?
+        .split_whitespace()
+        .nth(1)?
+        .parse::<u64>()
+        .ok()?;
+    kb.checked_mul(1024)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_rss_bytes() -> Option<u64> {
+    None
 }
 
 fn value_to_string(value: &Value) -> String {
@@ -478,7 +394,7 @@ fn example_value_to_string(value: &Value, value_type: Option<ValueType>) -> Stri
 fn lookup_display_value(row: &Value, fetcher_name: &str) -> String {
     let preferred_fields: &[&str] = match fetcher_name.to_uppercase().as_str() {
         "JOB_POSITION" => &["position_name", "name"],
-        "EMPLOYEE" => &["full_name", "name"],
+        "EMPLOYEE" => &["email"],
         "STAGE_TEMPLATE" | "REQUIREMENT_STAGE_TEMPLATE" => &["template_name", "name"],
         "ONBOARDING_TEMPLATE" => &["group_name", "name"],
         "FORM_FIELD" => &["name", "key_field", "label"],
@@ -497,6 +413,33 @@ fn lookup_display_value(row: &Value, fetcher_name: &str) -> String {
         .find_map(|field| row.get(*field).map(value_to_string))
         .filter(|value| !value.is_empty())
         .unwrap_or_default()
+}
+
+fn lookup_display_field(fetcher_name: &str) -> &'static str {
+    match fetcher_name.to_uppercase().as_str() {
+        "JOB_POSITION" => "position_name",
+        "EMPLOYEE" => "email",
+        "STAGE_TEMPLATE" | "REQUIREMENT_STAGE_TEMPLATE" => "template_name",
+        "ONBOARDING_TEMPLATE" => "group_name",
+        "FORM_FIELD" => "name",
+        _ => "name",
+    }
+}
+
+fn lookup_rows(raw_rows: Vec<Value>, fetcher_name: &str, display_field: &str) -> Arc<[LookupRow]> {
+    raw_rows
+        .iter()
+        .map(|row| LookupRow {
+            id: row.get("id").map(value_to_string).unwrap_or_default(),
+            name: row
+                .get(display_field)
+                .map(value_to_string)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| lookup_display_value(row, fetcher_name)),
+        })
+        .filter(|row| !row.id.is_empty() && !row.name.is_empty())
+        .collect::<Vec<_>>()
+        .into()
 }
 
 fn excel_column_name(mut column: u16) -> String {

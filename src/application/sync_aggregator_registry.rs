@@ -8,7 +8,10 @@ use crate::{
     },
     core::traits::{load::SyncAggregator, strategy::registry::Registry},
     domain::logging::repo::LoggingRepo,
-    infrastructure::db::ats_client::AtsClient,
+    infrastructure::{
+        db::ats_client::AtsClient,
+        loader::warehouse::warehouse_logging_import::WarehouseLoggingImport,
+    },
 };
 
 pub type SyncAggregatorRegistry = Registry<dyn SyncAggregator + Send + Sync>;
@@ -19,6 +22,7 @@ pub fn build_sync_aggregator_registry(
     bulk_loader: Arc<BulkLoaderRegistry>,
     ats_client: Arc<AtsClient>,
     logging: Arc<dyn LoggingRepo>,
+    import_logging: Arc<WarehouseLoggingImport>,
 ) -> SyncAggregatorRegistry {
     let mut registry = SyncAggregatorRegistry::new();
 
@@ -31,6 +35,7 @@ pub fn build_sync_aggregator_registry(
                 bulk_loader,
                 ats_client,
                 logging,
+                import_logging,
             }),
         )
         .expect("error register lsi vacancy sync aggregator");

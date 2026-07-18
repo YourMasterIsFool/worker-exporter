@@ -13,8 +13,12 @@ use crate::{
     },
     domain::logging,
     infrastructure::{
-        db::warehouse_client::WarehouseClient, ingestion::master,
-        loader::warehouse::types::WarehouseTemporaryTable,
+        db::warehouse_client::WarehouseClient,
+        ingestion::master,
+        loader::warehouse::{
+            types::WarehouseTemporaryTable,
+            warehouse_logging_import::{build_import_entity_states, WarehouseLoggingImport},
+        },
     },
     utils::{load_query::build_query, value::reformated_value},
 };
@@ -324,6 +328,11 @@ impl ImportLoadPersitence for WarehouseDynamicTemporaryLoader {
                 }
             }
         }
+
+        let entity_states = build_import_entity_states(rows, logging_id, config)?;
+        WarehouseLoggingImport::new(self.client.clone())
+            .bulk_upsert_with_tx(&mut tx, &entity_states)
+            .await?;
 
         tx.commit().await?;
 

@@ -19,6 +19,7 @@ use crate::application::sync_aggregator_registry::build_sync_aggregator_registry
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::infrastructure::loader;
 use crate::infrastructure::loader::warehouse::logging_warehouse::LoggingWarehouse;
+use crate::infrastructure::loader::warehouse::warehouse_logging_import::WarehouseLoggingImport;
 use crate::{
     app_state::AppState,
     application::{
@@ -120,9 +121,14 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     let import_dataset_v1_registry = Arc::new(build_importer_dataset_registry_v1(
         data_fetcher_registry.clone(),
     ));
+    let warehouse_logging = Arc::new(LoggingWarehouse {
+        client: warehouse_client.clone(),
+    });
+    let import_logging = Arc::new(WarehouseLoggingImport::new(warehouse_client.clone()));
     let sync_dataset_registry = Arc::new(build_sync_dataset_registry(
         data_fetcher_registry.clone(),
         source_registry.clone(),
+        import_logging.clone(),
     ));
     let dataset_registry = Arc::new(build_dataset_registry(
         warehouse_client.clone(),
@@ -132,15 +138,13 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         grpc_service.clone(),
     ));
 
-    let warehouse_logging = Arc::new(LoggingWarehouse {
-        client: warehouse_client.clone(),
-    });
     let sync_aggregator_registry = Arc::new(build_sync_aggregator_registry(
         source_registry.clone(),
         sync_dataset_registry.clone(),
         bulk_loader_registry.clone(),
         ats_client.clone(),
         warehouse_logging.clone(),
+        import_logging,
     ));
 
     let importer_load_registry =

@@ -1,0 +1,2 @@
+-- Add down migration script here
+-- alter table "public"."loggings" drop column config;

@@ -5,6 +5,11 @@ use calamine::Data;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub const IMPORT_ENTITY_STATE_RESULT_KEY: &str = "__import_entity_state";
+/// Internal dataset metadata. It is merged into the entity-state error JSON
+/// before a row reaches the temporary loader.
+pub const IMPORT_FETCHER_ERROR_RESULT_KEY: &str = "__import_fetcher_errors";
+
 // test
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct WhereField {
@@ -139,4 +144,13 @@ impl ExportRow {
 
         Ok(Self { fields: result })
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ValidationConfig {
+    #[serde(alias = "validation")]
+    pub validator: String,
+
+    #[serde(default)]
+    pub options: serde_json::Value,
 }
