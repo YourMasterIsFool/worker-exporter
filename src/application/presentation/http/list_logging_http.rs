@@ -8,17 +8,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     app_state::AppState,
+    application::types::AuthContextPayload,
     core::pagination::{ApiResponse, Paginated, PaginationQuery},
     domain::logging::{
         entity::{LoggingEntity, LoggingFilter, LoggingSort, LoggingSortField, SortDirection},
         repo::ListLoggingRequest,
     },
     errors::AppError,
+    infrastructure::loader::warehouse::temporary::warehouse_dynamic_temporary_loader::WarehouseDynamicTemporaryLoader,
 };
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PayloadLogging {
+    pub _auth_context: AuthContextPayload,
     #[serde(default, alias = "filters")]
     pub filter: LoggingFilterPayload,
     #[serde(default, alias = "sort_by", alias = "sortBy")]
@@ -51,6 +53,7 @@ pub enum LoggingTypeFilter {
 #[derive(Debug, Serialize)]
 pub struct ListLoggingItem {
     pub id: Option<String>,
+    pub logging_type: String,
     pub email: String,
     pub total_chunk: i32,
     pub current_chunk: i32,
@@ -69,6 +72,7 @@ impl From<LoggingEntity> for ListLoggingItem {
             processed_count: logging.processed_count,
             completed_at: logging.completed_at,
             download_url: logging.download_url,
+            logging_type: logging.logging_type,
         }
     }
 }
@@ -154,9 +158,13 @@ pub async fn list_log_by_tenant_id_http(
 ) -> Result<Json<ApiResponse<Paginated<ListLoggingItem>>>, AppError> {
     let usecases = state.usecases.clone();
     let usecase = usecases.list_log_by_tenant_id_usceases.clone();
+    let auth_context = payload._auth_context;
+    let mut payload_filter = payload.filter;
+
+    payload_filter.tenant_id = auth_context.tenant_id;
     let request = ListLoggingRequest {
         pagination,
-        filter: payload.filter.into(),
+        filter: payload_filter.into(),
         sort: payload.sort.into_sorts(),
     };
     let log_entries = usecase.execute(&request).await;
