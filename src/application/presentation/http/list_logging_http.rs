@@ -53,26 +53,42 @@ pub enum LoggingTypeFilter {
 #[derive(Debug, Serialize)]
 pub struct ListLoggingItem {
     pub id: Option<String>,
+    pub actor_id: String,
     pub logging_type: String,
     pub email: String,
+    pub tenant_id: String,
     pub total_chunk: i32,
     pub current_chunk: i32,
     pub processed_count: i32,
     pub completed_at: Option<chrono::NaiveDateTime>,
     pub download_url: Option<String>,
+    pub status: String,
+    // pub error: Option<serde_json::Value>,
+    // pub additional_info: Option<serde_json::Value>,
+    pub cursor: Option<String>,
+    pub stream_id: String,
+    pub created_at: Option<chrono::NaiveDateTime>,
 }
 
 impl From<LoggingEntity> for ListLoggingItem {
     fn from(logging: LoggingEntity) -> Self {
         Self {
             id: logging.id,
+            actor_id: logging.actor_id,
             email: logging.email,
+            tenant_id: logging.tenant_id,
             total_chunk: logging.total_chunk,
             current_chunk: logging.current_chunk,
             processed_count: logging.processed_count,
             completed_at: logging.completed_at,
             download_url: logging.download_url,
+            status: logging.status,
+            // error: logging.error,
+            // additional_info: logging.additional_info,
+            cursor: logging.cursor,
+            stream_id: logging.stream_id,
             logging_type: logging.logging_type,
+            created_at: logging.created_at,
         }
     }
 }
@@ -215,6 +231,7 @@ mod tests {
     #[test]
     fn accepts_filter_and_sort_aliases_without_a_view_field() {
         let payload: PayloadLogging = serde_json::from_value(serde_json::json!({
+            "_auth_context": {},
             "filters": { "tenantId": "tenant-1" },
             "sort_by": { "createdAt": "DESC" }
         }))
@@ -238,6 +255,7 @@ mod tests {
     #[test]
     fn accepts_only_export_or_import_logging_type_filter() {
         let payload: PayloadLogging = serde_json::from_value(serde_json::json!({
+            "_auth_context": {},
             "filter": { "loggingType": "IMPORT" }
         }))
         .unwrap();
@@ -245,33 +263,49 @@ mod tests {
 
         assert_eq!(filter.logging_type.as_deref(), Some("IMPORT"));
         assert!(serde_json::from_value::<PayloadLogging>(serde_json::json!({
+            "_auth_context": {},
             "filter": { "loggingType": "SYNC" }
         }))
         .is_err());
     }
 
     #[test]
-    fn list_item_serializes_only_summary_fields() {
+    fn list_item_serializes_all_fields_except_config() {
         let item = ListLoggingItem {
             id: Some("logging-1".to_string()),
+            actor_id: "actor-1".to_string(),
             email: "user@example.test".to_string(),
+            tenant_id: "tenant-1".to_string(),
             total_chunk: 4,
             current_chunk: 2,
             processed_count: 20,
             completed_at: None,
             download_url: None,
+            status: "COMPLETED".to_string(),
+            cursor: Some("cursor-1".to_string()),
+            stream_id: "stream-1".to_string(),
+            logging_type: "EXPORT".to_string(),
+            created_at: None,
         };
 
         assert_eq!(
             serde_json::to_value(item).unwrap(),
             serde_json::json!({
                 "id": "logging-1",
+                "actor_id": "actor-1",
                 "email": "user@example.test",
+                "tenant_id": "tenant-1",
                 "total_chunk": 4,
                 "current_chunk": 2,
                 "processed_count": 20,
                 "completed_at": null,
-                "download_url": null
+                "download_url": null,
+                "status": "COMPLETED",
+
+                "cursor": "cursor-1",
+                "stream_id": "stream-1",
+                "logging_type": "EXPORT",
+                "created_at": null
             })
         );
     }

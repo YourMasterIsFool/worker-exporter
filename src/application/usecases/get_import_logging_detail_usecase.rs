@@ -8,16 +8,23 @@ use crate::{
     domain::logging::{entity::LoggingEntity, repo::LoggingRepo},
     errors::AppError,
     infrastructure::loader::warehouse::warehouse_logging_import::WarehouseLoggingImport,
-    utils::custom_field_value,
+    utils::{custom_field_keys_match, custom_field_value},
 };
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportLoggingDetail {
+    /// Counts are calculated from rows in `import_config.main_table` / `master_table`.
+    #[serde(rename = "total_processed")]
+    pub total_processed: usize,
+    #[serde(rename = "total_success")]
+    pub total_success: usize,
+    #[serde(rename = "total_failed")]
+    pub total_failed: usize,
     /// Display labels from `import_config.fields[].header`.
     pub headers: Vec<ImportLoggingHeader>,
     /// Imported rows keyed by the corresponding `headers[].key`.
-    pub body: Vec<Map<String, Value>>,
+    pub content: Vec<Map<String, Value>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,9 +34,17 @@ pub struct ImportLoggingHeader {
     pub key: String,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ImportLoggingCounts {
+    total_processed: usize,
+    total_success: usize,
+    total_failed: usize,
+}
+
 #[derive(Debug, Deserialize)]
 struct StoredImportConfig {
     fields: Vec<StoredImportField>,
+    #[serde(alias = "main_table")]
     master_table: String,
     #[serde(default)]
     sequential_table: Option<Vec<StoredSequentialTable>>,
@@ -39,6 +54,14 @@ struct StoredImportConfig {
 struct StoredImportField {
     header: String,
     column: String,
+    #[serde(default)]
+    select: Option<String>,
+    #[serde(default)]
+    is_child: bool,
+    #[serde(default)]
+    fetcher_field_key: Option<String>,
+    #[serde(default)]
+    is_custom: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +112,7 @@ impl GetImportLoggingDetailUsecase {
             .list_master_entity_details(logging_id, &config.master_table)
             .await
             .map_err(|error| AppError::InternalServerError(error.to_string()))?;
+        let summary = Self::summarize_entities(&entities);
 
         let mut headers = config
             .fields
@@ -131,11 +155,46 @@ impl GetImportLoggingDetailUsecase {
                 })
                 .collect::<Map<_, _>>();
             row.extend(Self::state_values(&entity));
+            row.insert(
+                "id".to_string(),
+                entity
+                    .entity
+                    .get("id")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(entity.entity_id.to_string())),
+            );
 
             body.push(row);
         }
 
-        Ok(ImportLoggingDetail { headers, body })
+        Ok(ImportLoggingDetail {
+            total_processed: summary.total_processed,
+            total_success: summary.total_success,
+            total_failed: summary.total_failed,
+            headers,
+            content: body,
+        })
+    }
+
+    fn summarize_entities(
+        entities: &[crate::infrastructure::loader::warehouse::warehouse_logging_import::ImportMasterEntityDetail],
+    ) -> ImportLoggingCounts {
+        ImportLoggingCounts {
+            total_processed: entities.len(),
+            total_success: entities
+                .iter()
+                .filter(|entity| entity.sync_status == Some(crate::infrastructure::loader::warehouse::warehouse_logging_import::ImportSyncStatus::Sync))
+                .count(),
+            total_failed: entities
+                .iter()
+                .filter(|entity| {
+                    entity.sync_status
+                        == Some(crate::infrastructure::loader::warehouse::warehouse_logging_import::ImportSyncStatus::SyncFailed)
+                        || entity.validation_status
+                            == Some(crate::infrastructure::loader::warehouse::warehouse_logging_import::ImportValidationStatus::Invalid)
+                })
+                .count(),
+        }
     }
 
     fn import_config(logging: &LoggingEntity) -> Result<StoredImportConfig, AppError> {
@@ -230,6 +289,17 @@ impl GetImportLoggingDetailUsecase {
         sequential_config: &[StoredSequentialTable],
         sequential_rows: &HashMap<&str, Vec<Value>>,
     ) -> Value {
+        if let Some((select, is_child)) = field.selected_path(entity_table) {
+            return Self::resolve_selected_value(
+                &select,
+                is_child,
+                field.is_custom,
+                entity_table,
+                main,
+                sequential_rows,
+            );
+        }
+
         let paths = field
             .column
             .split('|')
@@ -241,6 +311,7 @@ impl GetImportLoggingDetailUsecase {
             return Self::resolve_path_value(
                 table,
                 column,
+                field.is_custom,
                 entity_table,
                 main,
                 sequential_config,
@@ -255,6 +326,7 @@ impl GetImportLoggingDetailUsecase {
                 Self::resolve_path_value(
                     table,
                     column,
+                    field.is_custom,
                     entity_table,
                     main,
                     sequential_config,
@@ -266,9 +338,143 @@ impl GetImportLoggingDetailUsecase {
         Value::Object(values)
     }
 
+    fn resolve_selected_value(
+        select: &str,
+        is_child: bool,
+        is_custom: bool,
+        entity_table: &str,
+        main: &Value,
+        sequential_rows: &HashMap<&str, Vec<Value>>,
+    ) -> Value {
+        let Some((table, path)) = select.trim().split_once(':') else {
+            return Value::Null;
+        };
+
+        if is_custom && table.ends_with("custom_field") {
+            return Self::resolve_custom_selected_value(table, path, is_child, sequential_rows);
+        }
+
+        if !is_child && table == entity_table {
+            return Self::resolve_json_path(main, path).unwrap_or(Value::Null);
+        }
+
+        let rows = sequential_rows
+            .get(table)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let values = rows
+            .iter()
+            .filter_map(|row| Self::resolve_json_path(row, path))
+            .collect::<Vec<_>>();
+
+        if is_child {
+            return Self::join_values(values);
+        }
+
+        Self::collapse_values(values)
+    }
+
+    fn resolve_custom_selected_value(
+        table: &str,
+        select_path: &str,
+        is_child: bool,
+        sequential_rows: &HashMap<&str, Vec<Value>>,
+    ) -> Value {
+        let mut parts = select_path.split(':').filter(|part| !part.is_empty());
+        let Some(field_key) = parts.next() else {
+            return Value::Null;
+        };
+        let selected_path = parts.collect::<Vec<_>>();
+        let rows = sequential_rows
+            .get(table)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let values = rows
+            .iter()
+            .filter(|row| {
+                row.get("field_key")
+                    .and_then(Value::as_str)
+                    .is_some_and(|key| custom_field_keys_match(key, field_key))
+            })
+            .filter_map(|row| Self::resolve_custom_selected_path(row, &selected_path))
+            .collect::<Vec<_>>();
+
+        if is_child {
+            Self::join_values(values)
+        } else {
+            Self::collapse_values(values)
+        }
+    }
+
+    fn resolve_custom_selected_path(row: &Value, selected_path: &[&str]) -> Option<Value> {
+        match selected_path {
+            [] => custom_field_value(row).cloned(),
+            ["value_text"] | ["value_number"] | ["value_id"] | ["value_bool"] | ["value_date"] => {
+                Self::custom_value_column(row, selected_path[0])
+            }
+            ["meta", path @ ..] => {
+                let meta = row.get("meta")?;
+                if path.is_empty() {
+                    Some(meta.clone())
+                } else {
+                    Self::resolve_json_path(meta, &path.join("."))
+                }
+            }
+            [column, path @ ..] => {
+                let value = row.get(*column)?;
+                if path.is_empty() {
+                    Some(value.clone())
+                } else {
+                    Self::resolve_json_path(value, &path.join("."))
+                }
+            }
+        }
+    }
+
+    fn custom_value_column(row: &Value, column: &str) -> Option<Value> {
+        let camel_case = match column {
+            "value_text" => "valueText",
+            "value_number" => "valueNumber",
+            "value_id" => "valueId",
+            "value_bool" => "valueBool",
+            "value_date" => "valueDate",
+            _ => return row.get(column).cloned(),
+        };
+
+        row.get(column)
+            .or_else(|| row.get(camel_case))
+            .filter(|value| !value.is_null())
+            .cloned()
+    }
+
+    fn resolve_json_path(value: &Value, path: &str) -> Option<Value> {
+        path.split('.')
+            .filter(|key| !key.is_empty())
+            .try_fold(value, |current, key| current.get(key))
+            .cloned()
+    }
+
+    fn join_values(values: Vec<Value>) -> Value {
+        let values = values
+            .into_iter()
+            .filter_map(|value| match value {
+                Value::Null => None,
+                Value::String(value) => Some(value),
+                value => Some(value.to_string()),
+            })
+            .collect::<Vec<_>>();
+
+        if values.is_empty() {
+            Value::Null
+        } else {
+            Value::String(values.join(", "))
+        }
+    }
+
     fn resolve_path_value(
         table: &str,
         column: &str,
+        field_is_custom: bool,
         entity_table: &str,
         main: &Value,
         sequential_config: &[StoredSequentialTable],
@@ -286,10 +492,14 @@ impl GetImportLoggingDetailUsecase {
             .map(Vec::as_slice)
             .unwrap_or_default();
 
-        if table_config.is_custom {
+        if field_is_custom || table_config.is_custom {
             let values = rows
                 .iter()
-                .filter(|row| row.get("field_key").and_then(Value::as_str) == Some(column))
+                .filter(|row| {
+                    row.get("field_key")
+                        .and_then(Value::as_str)
+                        .is_some_and(|field_key| custom_field_keys_match(field_key, column))
+                })
                 .filter_map(custom_field_value)
                 .cloned()
                 .collect::<Vec<_>>();
@@ -313,6 +523,25 @@ impl GetImportLoggingDetailUsecase {
 }
 
 impl StoredImportField {
+    fn selected_path(&self, master_table: &str) -> Option<(String, bool)> {
+        if let Some(select) = self.select.as_ref() {
+            return Some((select.clone(), self.is_child));
+        }
+
+        let field_key = self.fetcher_field_key.as_deref()?;
+        let (table, column) = self
+            .column
+            .split('|')
+            .filter_map(|path| path.trim().split_once(':'))
+            .rev()
+            .find(|(_, column)| column.ends_with("_meta"))?;
+
+        Some((
+            format!("{table}:{column}.{field_key}"),
+            table != master_table,
+        ))
+    }
+
     fn display_label(&self) -> String {
         let header = self.header.trim().trim_end_matches('*').trim().to_string();
 
@@ -372,6 +601,10 @@ mod tests {
         let field = StoredImportField {
             header: "No RR*".to_string(),
             column: "warehouse.ats_vacancy_custom_field:noRR".to_string(),
+            select: None,
+            is_child: false,
+            fetcher_field_key: None,
+            is_custom: true,
         };
 
         assert_eq!(field.display_label(), "No RR");
@@ -383,6 +616,10 @@ mod tests {
         let field = StoredImportField {
             header: "No RR*".to_string(),
             column: "warehouse.ats_vacancy_custom_field:noRR".to_string(),
+            select: None,
+            is_child: false,
+            fetcher_field_key: None,
+            is_custom: true,
         };
         let sequential = vec![StoredSequentialTable {
             table: "warehouse.ats_vacancy_custom_field".to_string(),
@@ -408,5 +645,97 @@ mod tests {
         );
 
         assert_eq!(value, json!("RR-001"));
+    }
+
+    #[test]
+    fn joins_selected_child_values() {
+        let mut rows = HashMap::new();
+        rows.insert(
+            "warehouse.ats_vacancy_pic",
+            vec![
+                json!({"employee_meta": {"name": "verrandy"}}),
+                json!({"employee_meta": {"name": "ridho"}}),
+            ],
+        );
+
+        let value = GetImportLoggingDetailUsecase::resolve_selected_value(
+            "warehouse.ats_vacancy_pic:employee_meta.name",
+            true,
+            false,
+            "warehouse.ats_vacancy_temporary",
+            &json!({}),
+            &rows,
+        );
+
+        assert_eq!(value, json!("verrandy, ridho"));
+    }
+
+    #[test]
+    fn resolves_selected_master_value() {
+        let value = GetImportLoggingDetailUsecase::resolve_selected_value(
+            "warehouse.ats_vacancy_temporary:position_meta.name",
+            false,
+            false,
+            "warehouse.ats_vacancy_temporary",
+            &json!({"position_meta": {"name": "bagus"}}),
+            &HashMap::new(),
+        );
+
+        assert_eq!(value, json!("bagus"));
+    }
+
+    #[test]
+    fn derives_select_and_child_flag_from_metadata_column() {
+        let field = StoredImportField {
+            header: "PIC*".to_string(),
+            column: "warehouse.ats_vacancy_pic:employee_id|warehouse.ats_vacancy_pic:employee_meta"
+                .to_string(),
+            select: None,
+            is_child: false,
+            fetcher_field_key: Some("name".to_string()),
+            is_custom: false,
+        };
+
+        assert_eq!(
+            field.selected_path("warehouse.ats_vacancy_temporary"),
+            Some((
+                "warehouse.ats_vacancy_pic:employee_meta.name".to_string(),
+                true
+            ))
+        );
+    }
+
+    #[test]
+    fn resolves_selected_custom_meta_or_value_column() {
+        let mut rows = HashMap::new();
+        rows.insert(
+            "warehouse.ats_vacancy_custom_field",
+            vec![json!({
+                "field_key": "workLocationGroupId",
+                "field_type": "UUID",
+                "value_text": "fallback",
+                "meta": {"name": "bagus"}
+            })],
+        );
+
+        let meta = GetImportLoggingDetailUsecase::resolve_selected_value(
+            "warehouse.ats_vacancy_custom_field:workLocationGroupId:meta:name",
+            true,
+            true,
+            "warehouse.ats_vacancy_temporary",
+            &json!({}),
+            &rows,
+        );
+        let value_text = GetImportLoggingDetailUsecase::resolve_selected_value(
+            "warehouse.ats_vacancy_custom_field:workLocationGroupId:value_text",
+            true,
+            true,
+            "warehouse.ats_vacancy_temporary",
+            &json!({}),
+            &rows,
+        );
+
+        assert_eq!(meta, json!("bagus"));
+        assert_eq!(value_text, json!("fallback"));
     }
 }

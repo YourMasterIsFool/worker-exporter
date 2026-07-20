@@ -75,6 +75,7 @@ impl Orchestrator for ExportOrchestrator {
             cursor: None,
             stream_id: msg_id.to_string().clone(),
             config: Some(serde_json::to_value(job.clone())?),
+            created_at:None
         };
 
         // create logging first

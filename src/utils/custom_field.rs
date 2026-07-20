@@ -57,7 +57,19 @@ pub fn custom_field_value(row: &Value) -> Option<&Value> {
         _ => return None,
     };
 
-    row.get(value_column).filter(|value| !value.is_null())
+    row.get(value_column)
+        .or_else(|| {
+            let camel_case = match value_column {
+                "value_text" => "valueText",
+                "value_number" => "valueNumber",
+                "value_id" => "valueId",
+                "value_bool" => "valueBool",
+                "value_date" => "valueDate",
+                _ => return None,
+            };
+            row.get(camel_case)
+        })
+        .filter(|value| !value.is_null())
 }
 
 fn value_to_uuid(value: &Value) -> Option<Uuid> {
@@ -145,6 +157,12 @@ mod tests {
     #[test]
     fn resolves_value_using_field_type() {
         let row = json!({"field_type": "TEXT", "value_text": "RR-001"});
+        assert_eq!(custom_field_value(&row), Some(&json!("RR-001")));
+    }
+
+    #[test]
+    fn resolves_camel_case_value_column_using_field_type() {
+        let row = json!({"field_type": "TEXT", "valueText": "RR-001"});
         assert_eq!(custom_field_value(&row), Some(&json!("RR-001")));
     }
 
