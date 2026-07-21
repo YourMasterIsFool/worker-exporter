@@ -293,7 +293,6 @@ impl GetImportLoggingDetailUsecase {
             return Self::resolve_selected_value(
                 &select,
                 is_child,
-                field.is_custom,
                 entity_table,
                 main,
                 sequential_rows,
@@ -341,7 +340,6 @@ impl GetImportLoggingDetailUsecase {
     fn resolve_selected_value(
         select: &str,
         is_child: bool,
-        is_custom: bool,
         entity_table: &str,
         main: &Value,
         sequential_rows: &HashMap<&str, Vec<Value>>,
@@ -350,7 +348,7 @@ impl GetImportLoggingDetailUsecase {
             return Value::Null;
         };
 
-        if is_custom && table.ends_with("custom_field") {
+        if table.ends_with("custom_field") {
             return Self::resolve_custom_selected_value(table, path, is_child, sequential_rows);
         }
 
@@ -661,7 +659,6 @@ mod tests {
         let value = GetImportLoggingDetailUsecase::resolve_selected_value(
             "warehouse.ats_vacancy_pic:employee_meta.name",
             true,
-            false,
             "warehouse.ats_vacancy_temporary",
             &json!({}),
             &rows,
@@ -674,7 +671,6 @@ mod tests {
     fn resolves_selected_master_value() {
         let value = GetImportLoggingDetailUsecase::resolve_selected_value(
             "warehouse.ats_vacancy_temporary:position_meta.name",
-            false,
             false,
             "warehouse.ats_vacancy_temporary",
             &json!({"position_meta": {"name": "bagus"}}),
@@ -721,14 +717,12 @@ mod tests {
         let meta = GetImportLoggingDetailUsecase::resolve_selected_value(
             "warehouse.ats_vacancy_custom_field:workLocationGroupId:meta:name",
             true,
-            true,
             "warehouse.ats_vacancy_temporary",
             &json!({}),
             &rows,
         );
         let value_text = GetImportLoggingDetailUsecase::resolve_selected_value(
             "warehouse.ats_vacancy_custom_field:workLocationGroupId:value_text",
-            true,
             true,
             "warehouse.ats_vacancy_temporary",
             &json!({}),

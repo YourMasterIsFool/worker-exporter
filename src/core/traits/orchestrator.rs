@@ -65,6 +65,10 @@ pub struct ImporterColumn {
     pub template: Option<serde_json::Value>,
     pub type_data: Option<TypeDataEnum>,
     pub is_custom: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_child: Option<bool>,
     pub fetcher_field_filter: Option<String>,
     pub fetcher_field_key: Option<String>,
     pub fetcher_key: Option<String>,

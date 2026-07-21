@@ -184,7 +184,6 @@ impl LoaderPersitence for LoggingWarehouse {
             "cursor",
             "stream_id",
             "config",
-            "created_at",
         ]
     }
 

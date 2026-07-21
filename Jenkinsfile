@@ -33,7 +33,7 @@ jobseekerPipeline(
     testAgent: 'agent-for-testing',
     gitopsAgent: 'agent-for-gitops',
     
-    // ═══════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════```23══════════════════════════
     // BUILD CONFIGURATION
     // ═══════════════════════════════════════════════════════════════
     buildStrategy: 'auto',                   // auto|springboot|nestjs|express|nodejs|react|vue|laravel|lumen|ci3|rust|docker

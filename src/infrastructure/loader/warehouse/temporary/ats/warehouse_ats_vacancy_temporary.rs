@@ -102,6 +102,62 @@ impl WarehouseAtsVacancyTemporaryLoader {
         ) || col_name.ends_with("_id")
     }
 
+    fn is_integer_column(col_name: &str) -> bool {
+        matches!(
+            col_name,
+            "sequence"
+                | "maximum_file"
+                | "maximum_file_size_in_kb"
+                | "pivot"
+                | "min_pivot"
+                | "max_pivot"
+        )
+    }
+
+    fn is_int4_column(col_name: &str) -> bool {
+        matches!(
+            col_name,
+            "headcount_quota" | "total_hired" | "currentHired" | "sla" | "total_vacan"
+        )
+    }
+
+    fn validate_int4_value(col_name: &str, value: &Value) -> Result<()> {
+        if !Self::is_int4_column(col_name) || value.is_null() {
+            return Ok(());
+        }
+
+        let parsed = match value {
+            Value::Number(value) => value.as_i64(),
+            Value::String(value) => value.trim().parse::<i64>().ok(),
+            _ => None,
+        };
+
+        if let Some(value) = parsed {
+            if i32::try_from(value).is_err() {
+                anyhow::bail!(
+                    "nilai '{}' untuk kolom integer '{}' berada di luar rentang PostgreSQL integer",
+                    value,
+                    col_name
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_jsonb_column(col_name: &str) -> bool {
+        col_name.ends_with("_meta")
+            || matches!(
+                col_name,
+                "multiple_choice_option"
+                    | "allowed_file_type"
+                    | "criteria"
+                    | "master_data"
+                    | "data_mapping"
+                    | "share_access"
+            )
+    }
+
     /// Binder cerdas untuk mencocokkan tipe data primitive JSON ke driver Postgres (SQLx)
     fn bind_dynamic_value<'a>(
         &self,
@@ -113,7 +169,7 @@ impl WarehouseAtsVacancyTemporaryLoader {
         // Kolom metadata pada tabel temporary bertipe JSONB. Nilai fetcher
         // biasanya berupa object, tetapi fallback string juga harus dibungkus
         // sebagai JSON agar SQLx tidak mengirimkannya sebagai TEXT.
-        if col_name.ends_with("_meta") {
+        if Self::is_jsonb_column(col_name) {
             if val.is_null() {
                 b.push_bind(None::<sqlx::types::Json<Value>>);
             } else {
@@ -283,6 +339,12 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
             if let Some(table_data) = row_map.get(master_table) {
                 // 🔥 Menggunakan TableStrategy::Main untuk validasi
                 if table_data.strategy == TableStrategy::Main && !table_data.values.is_empty() {
+                    for values in &table_data.values {
+                        for (column, value) in table_data.columns.iter().zip(values) {
+                            Self::validate_int4_value(column, value)?;
+                        }
+                    }
+
                     let master_payload = table_data
                         .values
                         .iter()
@@ -460,7 +522,7 @@ impl ImportLoadPersitence for WarehouseAtsVacancyTemporaryLoader {
                                             &mut b,
                                             val,
                                             &table_data.columns[index],
-                                            false,
+                                            Self::is_integer_column(&table_data.columns[index]),
                                         );
                                     }
                                 });

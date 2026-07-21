@@ -306,18 +306,18 @@ impl ImportOrchestrator {
     ) -> anyhow::Result<()> {
         let _ = import_pipeline;
 
-        /*
+        
         let response = reqwest::get(url).await?.error_for_status()?;
         let bytes = response.bytes().await?;
-        */
-        let bytes = tokio::fs::read("template_import_v35.xlsx").await?;
+        
+        // let bytes = tokio::fs::read("template_import_v35.xlsx").await?;
 
-        tracing::info!(
-            logging_id = logging_id,
-            url = url,
-            bytes = bytes.len(),
-            "Membuka workbook import dari template lokal."
-        );
+        // tracing::info!(
+        //     logging_id = logging_id,
+        //     url = url,
+        //     bytes = bytes.len(),
+        //     "Membuka workbook import dari template lokal."
+        // );
 
         let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes)).map_err(|err| {
             tracing::error!("Gagal membuka workbook dari response: {}", err);
