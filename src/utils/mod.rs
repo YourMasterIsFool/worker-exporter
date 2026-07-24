@@ -1,3 +1,4 @@
+pub mod sending_email;
 pub mod custom_field;
 pub mod export_resolver;
 pub mod fetcher;

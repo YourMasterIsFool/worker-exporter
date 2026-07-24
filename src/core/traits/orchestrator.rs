@@ -26,6 +26,7 @@ pub struct ExporterConfig {
     pub structure_template_code: String,
     pub redirected_url: String,
     pub chunk: i64,
+    pub send_email: Option<bool>
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

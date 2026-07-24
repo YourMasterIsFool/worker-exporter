@@ -2,7 +2,6 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Ok;
 use moka::future::Cache;
-use serde::Serialize;
 use serde_json::json;
 use tracing::instrument;
 
@@ -17,7 +16,6 @@ use crate::{
         writter::WritterRegistry,
     },
     core::{
-        config::config,
         traits::{
             orchestrator::{Orchestrator, OrchestratorJob},
             publisher::Publisher,
@@ -28,19 +26,9 @@ use crate::{
         entity::{LoggingEntity, LoggingStatus, LoggingType},
         repo::LoggingRepo,
     },
+    utils::sending_email::{sending_email, EmailPublisher},
 };
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")] //
-struct EmailPublisher {
-    email: String,
-    subject: String,
-    template_id: Option<String>,
-    template_code: Option<String>,
-    template_structure_code: Option<String>,
-    provider: String,
-    payload: serde_json::Value,
-}
 pub struct ExportOrchestrator {
     pub pipeline: Arc<PipelineRegistry>,
     pub writter: Arc<WritterRegistry>,
@@ -75,12 +63,10 @@ impl Orchestrator for ExportOrchestrator {
             current_chunk: 0,
             total_chunk: 0,
             cursor: None,
-            stream_id: msg_id.to_string().clone(),
+            stream_id: msg_id.to_string(),
             config: Some(serde_json::to_value(job.clone())?),
             created_at: None,
         };
-
-        // create logging first
         self.logging.store(logging_entity).await?;
 
         // loader first data
@@ -107,8 +93,8 @@ impl Orchestrator for ExportOrchestrator {
         // dari Factory bisa dimutasi secara lokal di dalam fungsi ini.
         //
 
-        if let Some(config) = &job.export_config {
-            let export_columns = config.fields.clone();
+        if let Some(export_config) = &job.export_config {
+            let export_columns = export_config.fields.clone();
 
             let mut format = String::from("csv");
             let mut format_file = String::from("csv");
@@ -152,7 +138,7 @@ impl Orchestrator for ExportOrchestrator {
             })
             .await??;
 
-            let dataset = self.dataset.get(&config.dataset)?;
+            let dataset = self.dataset.get(&export_config.dataset)?;
             let tenant_id = job
                 .import_config
                 .as_ref()
@@ -186,7 +172,7 @@ impl Orchestrator for ExportOrchestrator {
                 msg_id,
                 Some(job_filter),
                 &mut cursor,
-                config.chunk,
+                export_config.chunk,
                 &self.local_cache,
             )
             .await;
@@ -210,38 +196,33 @@ impl Orchestrator for ExportOrchestrator {
                 .await
                 .map_err(|e| anyhow::anyhow!("Gagal membaca file hasil export: {}", e))?;
 
-            // Panggil client gRPC Anda secara mutable menggunakan Arc::clone jika dibutuhkan,
-            // namun karena upload_file butuh `&mut self`, pastikan s3_grpc di struktur struct
-            // dikelola secara mandiri atau gunakan fungsi internal jika trait membolehkan.
-            // Di sini kita berasumsi pembungkus s3_grpc Anda mengizinkan pemanggilan langsung.
-            let payload = self
+            let upload = self
                 .grpc_service
                 .s3_facilitator_grpc
                 .upload_file(UploadFileRequest {
                     usage: "DOCUMENT".into(),
                     bucket_type: "PUBLIC".into(),
                     app_type: "HRMS".into(),
-                    tenant_id: job.tenant_id.clone(), // Tambahkan .clone() jika tenant_id adalah String agar tidak ter-move
+                    tenant_id: job.tenant_id.clone(),
                     data: buffer_data,
-                    // AMAN: `file_path` di bawah ini sekarang valid untuk digunakan berkali-kali
                     file_name: file_path
                         .file_name()
-                        .and_then(|n| n.to_str())
+                        .and_then(|name| name.to_str())
                         .unwrap_or("")
                         .into(),
                     file_type: file_path
                         .extension()
-                        .and_then(|e| e.to_str())
+                        .and_then(|extension| extension.to_str())
                         .unwrap_or("")
                         .into(),
                 })
                 .await?;
+            let key = upload.get_ref().key.clone();
 
-            let key = payload.get_ref().key.clone();
-            self.logging
-                .update_download_url(msg_id, key.clone())
-                .await?;
-            let download_url = config.redirected_url.replace("{{url}}", &key);
+           
+            let download_url = export_config.redirected_url.replace("{{url}}", &key);
+                self.logging
+                .update_download_url(msg_id, download_url.clone()).await?;
             let payload = json!({
                 "exporterName": job.email.clone(),
                 "downloadUrl": download_url
@@ -251,21 +232,16 @@ impl Orchestrator for ExportOrchestrator {
                 subject: "Send Email".into(),
                 template_id: None,
                 // template_code: Some("LSI_EMAIL_EXPORT".into()),
-                template_code: Some(config.template_code.clone()),
-                template_structure_code: Some(config.structure_template_code.clone()),
+                template_code: Some(export_config.template_code.clone()),
+                template_structure_code: Some(export_config.structure_template_code.clone()),
                 // template_structure_code: Some("LSI_EXPORT_STRUCTURE".into()),
                 provider: EmailProvider::SendGrid.to_string(),
                 payload,
             };
 
-            let payload_email = serde_json::to_value(email)?;
-
-            match self.publisher.publish("stream:email", payload_email).await {
-                Result::Ok(_) => {
-                    tracing::info!("Successfully stream email")
-                }
-                Err(err) => {
-                    tracing::error!("error stream publish email {}", err);
+            if let Some(send_email) = export_config.send_email {
+                if send_email {
+                    sending_email(self.publisher.clone(), "stream:email", &email).await?;
                 }
             }
 
