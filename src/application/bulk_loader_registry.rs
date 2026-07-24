@@ -6,6 +6,7 @@ use crate::{
         db::ats_client::AtsClient,
         loader::oltp::ats::bulk_sync::{
             bulk_custom_field::AtsVacancyCustomFieldBulkLoader, bulk_pic::AtsVacancyPicBulkLoader,
+            bulk_publish_on::AtsVacancyPublishOnBulkLoader,
             bulk_requirement::AtsVacancyRequirementBulkLoader,
             bulk_stage::AtsVacancyStageBulkLoader, bulk_vacancy::AtsVacancyBulkLoader,
         },
@@ -49,6 +50,14 @@ pub fn build_bulk_loader_registry(ats_client: Arc<AtsClient>) -> BulkLoaderRegis
             }),
         )
         .expect("error register ats vacancy requirement bulk loader");
+    registry
+        .register(
+            "ATS_VACANCY_PUBLISH_ON",
+            Arc::new(AtsVacancyPublishOnBulkLoader {
+                client: ats_client.clone(),
+            }),
+        )
+        .expect("error register ats vacancy publish-on bulk loader");
     registry
         .register(
             "ATS_VACANCY_STAGE",

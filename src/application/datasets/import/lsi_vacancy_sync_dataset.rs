@@ -39,6 +39,7 @@ impl LsiVacancySyncDataset {
                 "WAREHOUSE_ATS_VACANCY_CUSTOM_FIELD",
             ),
             ("ATS_VACANCY_PIC", "WAREHOUSE_ATS_VACANCY_PIC"),
+            ("ATS_VACANCY_PUBLISH_ON", "WAREHOUSE_ATS_VACANCY_PUBLISH_ON"),
             (
                 "ATS_VACANCY_REQUIREMENT",
                 "WAREHOUSE_ATS_VACANCY_REQUIREMENT",

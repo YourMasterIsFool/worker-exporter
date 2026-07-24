@@ -74,6 +74,10 @@ pub fn build_orchestrator_registry(
                 dataset,
                 grpc_service,
                 publisher,
+                local_cache: Cache::builder()
+                    .time_to_live(Duration::from_mins(30))
+                    .max_capacity(5000)
+                    .build(),
             }),
         )
         .ok();

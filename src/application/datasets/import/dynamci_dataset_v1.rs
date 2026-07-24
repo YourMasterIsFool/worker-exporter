@@ -5,27 +5,25 @@ use futures_util::future::join_all;
 use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tracing::info;
 use uuid::Uuid;
 
 use crate::{
     application::fetch_source_regitry::DataFetcherJsonRegistry,
     core::{
-        traits::{
-            dataset_trait::{ImporterDataset, ImporterDatasetV1},
-            orchestrator::{ImporterColumn, ImporterConfig, SequentialTable, TypeDataEnum},
-        },
+        traits::{dataset_trait::ImporterDatasetV1, orchestrator::SequentialTable},
         types::{
-            CastingEnum, ImportDatasetConfig, ImportRow, ImportTableResult, TableStrategy,
-            WhereField, IMPORT_FETCHER_ERROR_RESULT_KEY,
+            CastingEnum, ImportDatasetConfig, ImportTableResult, TableStrategy,
+            IMPORT_FETCHER_ERROR_RESULT_KEY,
         },
     },
-    utils::{resolve_custom_field_key, resolve_custom_field_typed_value, value::calamine_to_json},
+    utils::{
+        fetch_one_with_optional_cache, resolve_custom_field_key, resolve_custom_field_typed_value,
+        value::calamine_to_json,
+    },
 };
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Debug,
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -93,20 +91,6 @@ impl DynamicDatasetV1 {
 }
 
 impl DynamicDatasetV1 {
-    fn normalized_lookup_token(value: &str) -> String {
-        value.trim().to_lowercase()
-    }
-
-    fn lookup_operator(casting: Option<&CastingEnum>) -> &'static str {
-        match casting {
-            Some(CastingEnum::Uuid)
-            | Some(CastingEnum::Number)
-            | Some(CastingEnum::Date)
-            | Some(CastingEnum::Enum(_)) => "=",
-            Some(CastingEnum::Varchar) | None => "ILIKE",
-        }
-    }
-
     async fn resolve_fetcher(
         &self,
         value: &str,
@@ -116,53 +100,21 @@ impl DynamicDatasetV1 {
         use_cache: bool,
         cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<Option<serde_json::Value>> {
-        // Bersihkan spasi dan normalkan case agar cache lookup tidak
-        // membedakan "Sales", "sales", atau "SALES".
-        let clean_value = value.trim();
-        let clean_fetcher = fetcher_name.trim().to_uppercase();
-        let cache_key = format!(
-            "{}:{}",
-            clean_fetcher,
-            Self::normalized_lookup_token(clean_value)
-        );
-        tracing::info!("Mengecek cache key: {}", cache_key);
-
-        // 1. Jika diperbolehkan di-cache oleh payload JSON, cek cache hit dulu
-        if use_cache {
-            if let Some(cached_val) = cache.get(&cache_key).await {
-                // Ubah ke info agar terlihat jelas di log terminal konsol Anda
-                tracing::info!("🔥 CACHE HIT BERHASIL: {}", cache_key);
-                return Ok(Some(cached_val));
-            }
-            tracing::info!("🧊 Cache MISS untuk key: {}", cache_key);
-        }
-
-        // 2. Jika cache miss atau tidak masuk whitelist, fetch asli ke DB/gRPC
-        let filter = vec![WhereField {
-            field: fetcher_field_key.to_string(),
-            operator: Self::lookup_operator(casting.as_ref()).into(),
-            casting,
-            values: Some(vec![clean_value.into()]), // Gunakan clean_value
-            value: None,
-        }];
-
         let fetcher = self
             .fetcher
             .get(fetcher_name)
             .map_err(|e| anyhow::anyhow!("Fetcher '{}' tidak ditemukan: {}", fetcher_name, e))?;
 
-        let rows = fetcher.fetch(Some(filter)).await?;
-
-        if let Some(hit_row) = rows.into_iter().next() {
-            // 3. Simpan ke cache jika fetcher ini terdaftar di whitelist payload
-            if use_cache {
-                tracing::info!("💾 Menyimpan ke cache lokal: {}", cache_key);
-                cache.insert(cache_key, hit_row.clone()).await;
-            }
-            return Ok(Some(hit_row));
-        }
-
-        Ok(None)
+        fetch_one_with_optional_cache(
+            fetcher.as_ref(),
+            fetcher_name,
+            value,
+            fetcher_field_key,
+            casting,
+            use_cache,
+            cache,
+        )
+        .await
     }
 }
 

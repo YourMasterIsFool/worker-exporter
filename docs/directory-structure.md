@@ -11,6 +11,7 @@ worker-exporter/
 │   │   ├── handler/
 │   │   ├── orchestrator/
 │   │   ├── runner/
+│   │   ├── datasets/
 │   │   ├── presentation/http/
 │   │   ├── grpcs/
 │   │   ├── import/
@@ -77,6 +78,7 @@ Folder ini mengatur use case tanpa menjadi pemilik implementasi akses teknologi 
 | `handler/` | Loop consumer generik dan adaptor `ImportHandler`, `ExportHandler`, `SyncHandler`, serta `IngestionHandler`. |
 | `orchestrator/` | Koordinasi flow level tinggi dan registry `IMPORT`, `EXPORT`, `SYNC`. |
 | `runner/` | Loop batching/cursor untuk export dan sync. |
+| `datasets/` | Implementasi dataset export, import, dan sync; termasuk mapper reusable yang memakai `src/utils/`. |
 | `dataset.rs` | Pendaftaran export dataset, import dataset, dan sync dataset. |
 | `fetch_source_regitry.rs` | Pendaftaran fetcher JSON yang dipakai untuk lookup/mapping import. |
 | `writter.rs` | Factory writer `csv` dan `excel`. Ejaan `writter` mengikuti kode saat ini. |
@@ -103,6 +105,21 @@ Folder ini mengatur use case tanpa menjadi pemilik implementasi akses teknologi 
 | `traits/writter/` | Kontrak writer berkas export. |
 | `types.rs` | Tipe lintas layer, misalnya `WhereField`, casting, hasil import, dan row export. |
 
+## `src/utils/`
+
+Utility di sini berisi perilaku lintas dataset yang tidak bergantung pada source atau tabel
+bisnis tertentu. Dataset tetap memiliki aturan alur dan mapping domainnya sendiri.
+
+| Berkas | Fungsi |
+| --- | --- |
+| `fetcher.rs` | Filter fetcher, normalisasi cache key, single/batch lookup, dan logging cache. |
+| `json_value.rs` | Resolusi JSON path, flatten array, keyword, unique values, dan index row. |
+| `custom_field.rs` | Resolusi nilai custom field EAV serta grouping/index berdasarkan parent dan field key. |
+| `export_resolver.rs` | Resolusi column path terhadap beberapa source JSON dan format nilai export. |
+| `incremental_cursor_resolver.rs` | Resolusi cursor incremental untuk query. |
+| `load_query.rs`, `query_builder.rs` | Penyusunan query/filter berdasarkan `WhereField`. |
+| `value.rs` | Konversi nilai Excel/Calamine ke JSON dan formatting nilai. |
+
 ## `src/domain/`
 
 Saat ini domain yang paling matang adalah `logging/`:
@@ -124,9 +141,7 @@ Subfolder `oltp/` dan `snapshots/` menjadi tempat model bisnis untuk data sumber
 | `loader/warehouse/temporary/` | Penulis hasil import ke tabel temporary. |
 | `loader/warehouse/snapshots/` | Loader snapshot warehouse. |
 | `loader/oltp/ats/bulk_sync/` | Bulk loader untuk sinkronisasi ke ATS. |
-| `datasets/export/` | Implementasi pembacaan dataset export. |
-| `datasets/import/` | Mapper baris Excel ke struktur tabel import. |
-| `datasets/sync/` | Penyusun data master/child sebelum bulk sync. |
+| `datasets/` | Modul placeholder/kompatibilitas infrastructure; implementasi dataset aktif berada di `src/application/datasets/`. |
 | `exporter/` | Implementasi CSV dan XLSX writer. |
 | `pipeline/ats/` | Pipeline import ATS yang terdaftar. |
 | `proto/` | Definisi `.proto` yang dibangun pada waktu kompilasi. |

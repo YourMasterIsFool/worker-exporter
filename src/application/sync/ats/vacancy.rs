@@ -37,6 +37,7 @@ impl AtsVacancyAtsSyncAggregator {
         "ATS_VACANCY_PIC",
         "ATS_VACANCY_STAGE",
         "ATS_VACANCY_REQUIREMENT",
+        "ATS_VACANCY_PUBLISH_ON",
     ];
 }
 

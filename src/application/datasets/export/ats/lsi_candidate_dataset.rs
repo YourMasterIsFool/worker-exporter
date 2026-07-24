@@ -73,6 +73,9 @@ use crate::{
     },
     core::{traits::load::LoadEnum, types::WhereField},
     infrastructure::db::ats_client::AtsClient,
+    utils::{
+        index_custom_field_rows_by_parent_and_key, unique_string_field_values, uuid_values_filter,
+    },
 };
 
 #[derive(Clone)]
@@ -156,13 +159,7 @@ impl LsiCandidateDataset {
             return None;
         }
 
-        Some(WhereField {
-            field: "tenant_id".into(),
-            operator: "=".into(),
-            values: Some(tenant_ids),
-            value: None,
-            casting: Some(CastingEnum::Uuid),
-        })
+        Some(uuid_values_filter("tenant_id", tenant_ids))
     }
 
     pub fn get_map_custom_field(
@@ -192,22 +189,6 @@ impl LsiCandidateDataset {
         }
 
         result
-    }
-
-    pub fn mapper_custom_fields(
-        &self,
-        map: &mut HashMap<String, serde_json::Value>,
-        data: &Vec<serde_json::Value>,
-    ) {
-        for key in data {
-            if let (Some(candidate_id), Some(key_field)) = (
-                key.get("parent_id").and_then(|v| v.as_str()), // ✅ as_str()
-                key.get("field_key").and_then(|v| v.as_str()), // ✅ as_str()
-            ) {
-                map.insert(format!("{}_{}", candidate_id, key_field), key.clone());
-                // hasil: "019efc8f-46bf-793b-a3eb-8ab8342322de_height" ✅
-            }
-        }
     }
 }
 
@@ -246,7 +227,6 @@ impl Dataset for LsiCandidateDataset {
     ) -> anyhow::Result<(Vec<ExportRow>, Option<String>)> {
         let mut columns = vec![];
         let mut map_master_data = HashMap::<String, String>::new();
-        let mut map_custom_fields = HashMap::<String, serde_json::Value>::new();
 
         if let LoadEnum::Select(_f, c) = strategy_enum {
             if let Some(c) = c {
@@ -295,48 +275,29 @@ impl Dataset for LsiCandidateDataset {
             .extract(cursor_uuid, limit, &strategy_enum)
             .await?;
 
-        let candidate_ids: Vec<String> = candidate_fetcher_data
-            .iter()
-            .filter_map(|f| f.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .collect();
+        // pretty print for logging candidate data fetchedd
+
+        tracing::info!(
+            candidate_data = %serde_json::to_string(&candidate_fetcher_data)?,
+            "candidate fetch data"
+        );
+
+        let candidate_ids = unique_string_field_values(&candidate_fetcher_data, "id");
 
         if candidate_ids.is_empty() {
             return Ok((vec![], next_cursor.map(|c| c.to_string())));
         }
 
-        let applicant_filter = vec![WhereField {
-            field: "candidate_id".into(),
-            operator: "=".into(),
-            values: Some(candidate_ids.clone()),
-            value: None,
-            casting: Some(CastingEnum::Uuid),
-        }];
+        let applicant_filter = vec![uuid_values_filter("candidate_id", candidate_ids.clone())];
 
-        let education_filter = vec![WhereField {
-            field: "candidate_id".into(),
-            operator: "=".into(),
-            values: Some(candidate_ids.clone()),
-            value: None,
-            casting: Some(CastingEnum::Uuid),
-        }];
+        let education_filter = vec![uuid_values_filter("candidate_id", candidate_ids.clone())];
 
-        let mut candidate_client_filter = vec![WhereField {
-            field: "parent_id".into(),
-            operator: "=".into(),
-            values: Some(candidate_ids.clone()),
-            value: None,
-            casting: Some(CastingEnum::Uuid),
-        }];
+        let mut candidate_client_filter =
+            vec![uuid_values_filter("parent_id", candidate_ids.clone())];
         if let Some(filter) = Self::tenant_id_filter(tenant_ids) {
             candidate_client_filter.push(filter);
         }
-        let experient_filter = vec![WhereField {
-            field: "candidate_id".into(),
-            operator: "=".into(),
-            values: Some(candidate_ids.clone()),
-            value: None,
-            casting: Some(CastingEnum::Uuid),
-        }];
+        let experient_filter = vec![uuid_values_filter("candidate_id", candidate_ids.clone())];
 
         // let mut address_after_decrypt_vec = Vec::with_capacity(candidate_ids.len());
         //fetch all paralelly
@@ -351,26 +312,12 @@ impl Dataset for LsiCandidateDataset {
             experient_fetcher.fetch(Some(experient_filter)),
             candidate_field_fetcher.fetch(Some(candidate_client_filter)),
         )?;
-
-        let vacancy_ids: Vec<String> = applicants
-            .iter()
-            .filter_map(|f| {
-                f.get("vacancy_id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            })
-            .collect();
+        let vacancy_ids = unique_string_field_values(&applicants, "vacancy_id");
 
         let vacancy_fetcher_data = if vacancy_ids.is_empty() {
             vec![]
         } else {
-            let vacancy_filter = vec![WhereField {
-                field: "id".into(),
-                operator: "=".into(),
-                values: Some(vacancy_ids),
-                value: None,
-                casting: Some(CastingEnum::Uuid),
-            }];
+            let vacancy_filter = vec![uuid_values_filter("id", vacancy_ids)];
             vacancy_fetcher.fetch(Some(vacancy_filter)).await?
         };
 
@@ -408,7 +355,8 @@ impl Dataset for LsiCandidateDataset {
                 (id.to_string(), name.to_string())
             })
             .collect();
-        self.mapper_custom_fields(&mut map_custom_fields, &candidate_client_fetcher_data);
+        let map_custom_fields =
+            index_custom_field_rows_by_parent_and_key(&candidate_client_fetcher_data);
 
         debug!("CANDIDATE EXPERIENT : {:?}", experient_fetcher_data);
         debug!("CANDIDATE CLIENT : {:?}", candidate_client_fetcher_data);
@@ -612,13 +560,7 @@ impl Dataset for LsiCandidateDataset {
         }
 
         if !master_geo_ids.is_empty() {
-            let geo_filter = Some(vec![WhereField {
-                field: "id".to_string(),
-                operator: "=".into(),
-                value: None,
-                values: Some(master_geo_ids),
-                casting: Some(CastingEnum::Uuid),
-            }]);
+            let geo_filter = Some(vec![uuid_values_filter("id", master_geo_ids)]);
 
             let geo_data = geo_fetcher.fetch(geo_filter).await?;
 
@@ -632,13 +574,7 @@ impl Dataset for LsiCandidateDataset {
             }
         }
 
-        let master_items_filter = Some(vec![WhereField {
-            field: "id".to_string(),
-            operator: "=".into(), // Gunakan IN
-            value: None,
-            values: Some(master_ids),
-            casting: Some(CastingEnum::Uuid),
-        }]);
+        let master_items_filter = Some(vec![uuid_values_filter("id", master_ids)]);
 
         let education_mapper_data = education_fetcher_data
             .iter()
@@ -679,7 +615,7 @@ impl Dataset for LsiCandidateDataset {
 
         let mut rows: Vec<LsiCandidateDatasetRow> = vec![];
 
-        for (index, candidate_map) in candidate_fetcher_data.iter().enumerate() {
+        for candidate_map in &candidate_fetcher_data {
             let candidate_id = candidate_map
                 .get("id")
                 .and_then(|v| v.as_str())

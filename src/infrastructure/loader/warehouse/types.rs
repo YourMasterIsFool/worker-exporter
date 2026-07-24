@@ -4,6 +4,7 @@ pub enum WarehouseTemporaryTable {
     AtsVacancyRequirement,
     AtsVacancyCustomField,
     AtsVacancyPic,
+    AtsVacancyPublishOn,
 }
 
 impl WarehouseTemporaryTable {
@@ -14,6 +15,7 @@ impl WarehouseTemporaryTable {
             WarehouseTemporaryTable::AtsVacancyRequirement => "warehouse.ats_vacancy_requirement",
             WarehouseTemporaryTable::AtsVacancyCustomField => "warehouse.ats_vacancy_custom_field",
             WarehouseTemporaryTable::AtsVacancyPic => "warehouse.ats_vacancy_pic",
+            WarehouseTemporaryTable::AtsVacancyPublishOn => "warehouse.ats_vacancy_publish_on",
         }
     }
 }

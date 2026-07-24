@@ -140,9 +140,85 @@ Contoh dengan filter tambahan:
 
 Filter tenant selalu ditambahkan oleh orchestrator. Pilih `chunk` positif yang sesuai kapasitas database dan memori. Hasil akhirnya diupload lewat facilitator; worker juga menerbitkan event email ke `stream:email`, sehingga service penerima stream tersebut harus tersedia agar notifikasi terkirim.
 
+Dataset applicant tersedia dengan key `lsi_applicant_dataset`. Data kandidat diambil
+dari `applicant_snapshot.candidate_data`, sedangkan data vacancy diambil dari vacancy
+terkait. Contoh konfigurasi fields:
+
+```json
+{
+  "dataset": "lsi_applicant_dataset",
+  "fields": [
+    { "name": "Candidate ID", "column": "id" },
+    { "name": "Nama Lengkap", "column": "candidateName" },
+    { "name": "No. KTP", "column": "identityNumber" },
+    { "name": "Alamat Lengkap KTP", "column": "homeAddress" },
+    { "name": "Provinsi KTP", "column": "addressProvince.name" },
+    { "name": "Kab/Kota KTP", "column": "addressCity.name" },
+    { "name": "Kecamatan KTP", "column": "addressDistrict.name" },
+    { "name": "Kelurahan KTP", "column": "addressSubDistrict.name" },
+    { "name": "Kode Pos KTP", "column": "addressPostalCode" },
+    { "name": "Tempat Lahir", "column": "placeOfBirth.name" },
+    { "name": "Tanggal Lahir", "column": "dateOfBirth" },
+    { "name": "Jenis Kelamin", "column": "gender.name" },
+    { "name": "Status Pernikahan", "column": "maritalStatus.name" },
+    { "name": "Email", "column": "email" },
+    { "name": "Nomor Telepon/HP", "column": "phoneNumber" },
+    { "name": "Timestamp", "column": "createdAt" },
+    { "name": "Last Update", "column": "updatedAt" },
+    { "name": "RR Number", "column": null },
+    { "name": "Nama Lowongan yang Dilamar (Vacancy Name)", "column": "vacancy.name" },
+    { "name": "Work Location", "column": "workLocation.name", "fetcher": "MASTER_GEO", "fetcher_field_key": "id", "fetcher_key": "id", "is_cache": true },
+    { "name": "Grade", "column": "jobGrade.name", "fetcher": "JOB_GRADE", "fetcher_field_key": "id", "fetcher_key": "id", "is_cache": true },
+    { "name": "Job Grade", "column": "jobGrade.name", "fetcher": "JOB_GRADE", "fetcher_field_key": "id", "fetcher_key": "id", "is_cache": true },
+    { "name": "Agama", "column": "religion.name" },
+    { "name": "Applied Date", "column": "applicant_bucket.created_at" },
+    { "name": "Nomor BPJS Ketenagakerjaan", "column": "customFields.bpjsKetenagakerjaanNumber" },
+    { "name": "Nomor BPJS Kesehatan", "column": "customFields.bpjsKesehatanNumber" },
+    { "name": "Nomor Rekening BCA (BNI jika Super Indo Express)", "column": "customFields.bankAccountNumber" },
+    { "name": "Nomor NPWP", "column": "customFields.npwpNumber" },
+    { "name": "Nama Lengkap Keluarga", "column": "contacts.0.contactName" },
+    { "name": "Hubungan dengan Karyawan", "column": "contacts.0.relationship.name" },
+    { "name": "Nomor Telepon", "column": "contacts.0.phone" },
+    { "name": "Tanggal Bergabung (Join Date)", "column": null },
+    { "name": "Ukuran Kemeja Anda (Untuk kandidat Super Indo Apprentice Program)", "column": "customFields.shirtSize.name" },
+    { "name": "Ukuran Celana Formal Anda (Nomor) (Untuk kandidat Super Indo Apprentice Program)", "column": "customFields.pantsSize" },
+    { "name": "Nomor ID Aplikasi My Super Indo", "column": "customFields.mySuperIndoAppIdNumber" }
+  ]
+}
+```
+
+Path tanpa prefix dibaca dari `candidate_data`; `customFields.*` membaca custom field
+kandidat, sedangkan `vacancyCustomFields.jobGradeId` membaca custom field vacancy dengan
+`field_key = jobGradeId`, kemudian ID tersebut di-resolve melalui `JOB_GRADE`. Work
+location di-resolve melalui `MASTER_GEO` berdasarkan `vacancy.work_location_id`. Nilai
+`null` akan diekspor sebagai `-`.
+
+Alur resolusi `lsi_applicant_dataset` adalah:
+
+1. `oltp_ats_applicant_bucket` menjadi source utama dan menyediakan `vacancy_id` serta cursor.
+2. `ats_applicant_snapshot_fetcher` mengambil snapshot berdasarkan `applicant_bucket_id`.
+3. Kandidat dibaca dari `applicant_snapshot.candidate_data`.
+4. `ats_vacancy_fetcher` mengambil vacancy berdasarkan `applicant_bucket.vacancy_id`.
+5. `OLTP_VACANCY_CUSTOM_FIELD` mengambil `field_key = jobGradeId`, lalu `JOB_GRADE` me-resolve ID grade.
+6. `MASTER_GEO` me-resolve `vacancy.work_location_id` menjadi `workLocation`.
+
+`is_cache: true` pada field export mengaktifkan cache untuk fetcher internal yang relevan pada
+dataset applicant. Cache memakai key berbentuk `<FETCHER_UPPERCASE>:<nilai-tertrim-dan-lowercase>`
+dan dibersihkan setelah job export selesai. `fetcher_field_key`, `fetcher_key`, dan
+`fetcher_field_filter` tersedia sebagai kontrak umum `ExporterColumn`, tetapi mapping relasi
+applicant saat ini tetap ditentukan oleh dataset; metadata tersebut belum mengganti mapping
+internal secara dinamis.
+
 ## Menjalankan IMPORT
 
-IMPORT mengunduh berkas Excel dari object key `import_config.key`; key tersebut harus dapat diterjemahkan facilitator menjadi URL yang dapat diakses worker. `data_source_type: "buffer"` memilih buffer mode. Nilai selain `buffer`, misalnya `stream`, memilih stream mode.
+IMPORT mengunduh berkas Excel dari object key `import_config.key`; key tersebut harus dapat diterjemahkan facilitator menjadi URL absolut yang dapat diakses worker. URL relatif akan menyebabkan error `relative URL without a base`. `data_source_type: "buffer"` memilih buffer mode. Nilai selain `buffer`, misalnya `stream`, memilih stream mode.
+
+Pada stream mode, response diunduh bertahap ke file sementara dengan pola
+`/tmp/worker-exporter-import-<uuid>.xlsx`. Workbook kemudian dibaca dari file tersebut per
+chunk dan file sementara dihapus setelah proses selesai, termasuk ketika proses import gagal
+sejauh cleanup masih dapat dilakukan. Buffer mode membaca response di memory tanpa file
+sementara. Karena itu, container worker harus mengizinkan penulisan ke `/tmp` dan log
+`Download import selesai, membuka workbook dari file sementara` dapat dipakai untuk diagnosis.
 
 Contoh job vacancy:
 
@@ -197,6 +273,28 @@ Contoh job vacancy:
 ```
 
 `type_data` menerima `TEXT`, `UUID`, `DATE`, `NUMBER`, atau `Boolean`. Jika kolom memakai `fetcher`, isi key fetcher yang terdaftar dan konfigurasi `fetcher_field_filter`, `fetcher_field_key`, serta `fetcher_key` sesuai mapper dataset.
+
+Contoh field import yang memakai fetcher:
+
+```json
+{
+  "header": "Job Position",
+  "column": "vacancy:position_id",
+  "fetcher": "JOB_POSITION",
+  "type_data": "UUID",
+  "is_custom": false,
+  "fetcher_field_filter": null,
+  "fetcher_field_key": "id",
+  "fetcher_key": "id",
+  "casting": "Uuid"
+}
+```
+
+`fetcher_caching` berisi daftar nama fetcher yang boleh memakai hasil lookup dari cache pada
+dataset import, misalnya `"fetcher_caching": ["JOB_POSITION", "MASTER_GEO"]`. Cache lookup
+menormalkan nama fetcher ke uppercase dan token lookup dengan trim/lowercase. Import melakukan
+prefetch batch per chunk; jika nilai belum tersedia, dataset dynamic melakukan lookup lanjutan
+per token dan mencatat cache hit, miss, serta error fetcher di log.
 
 Dengan `auto_sync: true`, worker mengisi `sync_config.logging_id` dari logging import yang baru dibuat lalu menerbitkan job baru ke `stream:sync`. Dengan `auto_sync: false`, ambil ID logging import melalui `POST /loggings` sebelum menjalankan SYNC secara manual.
 

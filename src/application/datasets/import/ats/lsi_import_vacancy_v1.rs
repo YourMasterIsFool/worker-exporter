@@ -22,10 +22,13 @@ use crate::{
         traits::{dataset_trait::ImporterDatasetV1, orchestrator::Filterable},
         types::{
             CastingEnum, ImportDatasetConfig, ImportTableResult, TableStrategy, ValidationConfig,
-            WhereField, IMPORT_ENTITY_STATE_RESULT_KEY, IMPORT_FETCHER_ERROR_RESULT_KEY,
+            IMPORT_ENTITY_STATE_RESULT_KEY, IMPORT_FETCHER_ERROR_RESULT_KEY,
         },
     },
-    utils::{custom_field_keys_match, value::calamine_to_json},
+    utils::{
+        custom_field_keys_match, first_object_value, flatten_values, resolved_custom_field_value,
+        uuid_values_filter, value::calamine_to_json, value_as_keyword_list, values_at_path,
+    },
 };
 
 pub struct LsiImportVacancyV1 {
@@ -45,48 +48,9 @@ impl LsiImportVacancyV1 {
         path.trim().split_once(':')
     }
 
-    fn value_as_keyword_list(value: &Value) -> Vec<String> {
-        match value {
-            Value::Null => vec![],
-            Value::String(text) if !text.trim().is_empty() => vec![text.trim().to_string()],
-            Value::String(_) => vec![],
-            Value::Array(items) => items
-                .iter()
-                .flat_map(Self::value_as_keyword_list)
-                .collect::<Vec<_>>(),
-            Value::Bool(boolean) => vec![boolean.to_string()],
-            Value::Number(number) => vec![number.to_string()],
-            other => vec![other.to_string()],
-        }
-    }
-
-    fn extract_custom_field_resolved_value(value: &Value) -> Option<Value> {
-        let Value::Object(map) = value else {
-            return None;
-        };
-
-        [
-            "value_text",
-            "value_number",
-            "value_id",
-            "value_bool",
-            "value_date",
-        ]
-        .iter()
-        .find_map(|key| map.get(*key).filter(|value| !value.is_null()).cloned())
-    }
-
-    fn value_from_object(source: Option<&Value>, keys: &[&str]) -> Option<Value> {
-        let Value::Object(map) = source? else {
-            return None;
-        };
-
-        keys.iter().find_map(|key| map.get(*key).cloned())
-    }
-
     fn stage_detail_value(detail: &Value, keys: &[&str]) -> Option<Value> {
-        Self::value_from_object(detail.get("recruitment_stage_meta"), keys)
-            .or_else(|| Self::value_from_object(detail.get("stage_snapshot"), keys))
+        first_object_value(detail.get("recruitment_stage_meta"), keys)
+            .or_else(|| first_object_value(detail.get("stage_snapshot"), keys))
     }
 
     fn is_stage_template_group(group: &str) -> bool {
@@ -798,12 +762,72 @@ impl LsiImportVacancyV1 {
                     };
 
                     if custom_field_keys_match(field_key, column) {
-                        return Self::extract_custom_field_resolved_value(custom_value);
+                        return resolved_custom_field_value(custom_value).cloned();
                     }
                 }
 
                 None
             }
+        }
+    }
+
+    fn configured_custom_field_value(value: &Value, value_column: Option<&str>) -> Option<Value> {
+        let value_column = value_column
+            .map(str::trim)
+            .filter(|column| !column.is_empty());
+
+        if let Some(value_column) = value_column {
+            return value
+                .get(value_column)
+                .filter(|value| !value.is_null())
+                .cloned();
+        }
+
+        resolved_custom_field_value(value).cloned()
+    }
+
+    fn filterable_value(
+        value: Value,
+        source_column: Option<&str>,
+        field_key: Option<&str>,
+        value_column: Option<&str>,
+        is_array: bool,
+    ) -> Option<Value> {
+        let values = values_at_path(value, source_column);
+        let field_key = field_key.map(str::trim).filter(|key| !key.is_empty());
+
+        let values = if let Some(field_key) = field_key {
+            flatten_values(values)
+                .into_iter()
+                .filter_map(|value| {
+                    value
+                        .get("field_key")
+                        .and_then(Value::as_str)
+                        .filter(|candidate| custom_field_keys_match(candidate, field_key))
+                        .and_then(|_| Self::configured_custom_field_value(&value, value_column))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            values
+        };
+
+        let values = values
+            .into_iter()
+            .filter(|value| !value.is_null())
+            .collect::<Vec<_>>();
+        if values.is_empty() {
+            return None;
+        }
+
+        if is_array {
+            if let [Value::Array(items)] = values.as_slice() {
+                return Some(Value::Array(items.clone()));
+            }
+            Some(Value::Array(values))
+        } else if values.len() == 1 {
+            values.into_iter().next()
+        } else {
+            Some(Value::Array(values))
         }
     }
 
@@ -902,6 +926,58 @@ impl LsiImportVacancyV1 {
         );
     }
 
+    fn append_publish_on_rows(
+        &self,
+        config: &ImportDatasetConfig,
+        result: &mut HashMap<String, ImportTableResult>,
+    ) -> anyhow::Result<()> {
+        let master_table = &config.import_config.master_table;
+        let vacancy_id =
+            self.extract_master_id(result, master_table, &config.import_config.primary_column)?;
+        let Some(status) = self
+            .extract_master_value(result, master_table, "status")
+            .and_then(|value| value.as_str().map(str::trim).map(str::to_uppercase))
+            .filter(|status| !status.is_empty())
+        else {
+            return Ok(());
+        };
+
+        let tenant_id = config.import_config.tenant_id.trim();
+        if tenant_id.is_empty() {
+            return Ok(());
+        }
+
+        // Vacancy selalu aktif pada careersite tenant yang menjalankan import.
+        self.upsert_main_value(
+            result,
+            master_table,
+            "active_publish_keys",
+            Value::Array(vec![Value::String(format!("CAREERSITE:{tenant_id}"))]),
+        )?;
+
+        let target_table = Self::resolve_or_default_table(
+            config,
+            &["vacancy_publish_on", "ats_vacancy_publish_on"],
+            "warehouse.vacancy_publish_on",
+        );
+        let row = HashMap::from([
+            ("id".to_string(), Value::String(Uuid::now_v7().to_string())),
+            ("vacancy_id".to_string(), Value::String(vacancy_id)),
+            (
+                "platform".to_string(),
+                Value::String("CAREERSITE".to_string()),
+            ),
+            ("status".to_string(), Value::String(status)),
+            (
+                "careersite_tenant_id".to_string(),
+                Value::String(tenant_id.to_string()),
+            ),
+        ]);
+
+        self.insert_has_many_result(result, target_table, vec![row]);
+        Ok(())
+    }
+
     fn append_main_payload_columns(
         &self,
         config: &ImportDatasetConfig,
@@ -915,6 +991,10 @@ impl LsiImportVacancyV1 {
             for Filterable {
                 main_column,
                 import_column,
+                is_array,
+                source_column,
+                field_key,
+                value_column,
             } in main_filterable
             {
                 let Some((table, column)) = Self::parse_table_column_path(main_column) else {
@@ -922,7 +1002,15 @@ impl LsiImportVacancyV1 {
                 };
 
                 if let Some(value) = self.extract_value_by_path(result, table, column) {
-                    filterable_attribute.insert(import_column.to_string(), value);
+                    if let Some(value) = Self::filterable_value(
+                        value,
+                        source_column.as_deref(),
+                        field_key.as_deref(),
+                        value_column.as_deref(),
+                        *is_array,
+                    ) {
+                        filterable_attribute.insert(import_column.to_string(), value);
+                    }
                 }
             }
 
@@ -945,7 +1033,7 @@ impl LsiImportVacancyV1 {
                 };
 
                 if let Some(value) = self.extract_value_by_path(result, table, column) {
-                    keywords.extend(Self::value_as_keyword_list(&value));
+                    keywords.extend(value_as_keyword_list(&value));
                 }
             }
 
@@ -1023,13 +1111,10 @@ impl LsiImportVacancyV1 {
         let field_fetcher = self.fetcher.get("FORM_FIELD")?;
 
         let detail_rows = template_detail_fetcher
-            .fetch(Some(vec![WhereField {
-                field: "template_id".into(),
-                operator: "=".into(),
-                value: None,
-                values: Some(vec![template_id]),
-                casting: Some(CastingEnum::Uuid),
-            }]))
+            .fetch(Some(vec![uuid_values_filter(
+                "template_id",
+                vec![template_id],
+            )]))
             .await?;
 
         if detail_rows.is_empty() {
@@ -1047,13 +1132,7 @@ impl LsiImportVacancyV1 {
         }
 
         let field_rows = field_fetcher
-            .fetch(Some(vec![WhereField {
-                field: "id".into(),
-                operator: "=".into(),
-                value: None,
-                values: Some(field_ids),
-                casting: Some(CastingEnum::Uuid),
-            }]))
+            .fetch(Some(vec![uuid_values_filter("id", field_ids)]))
             .await?;
 
         let field_map = field_rows
@@ -1246,13 +1325,10 @@ impl LsiImportVacancyV1 {
 
         let template_detail_fetcher = self.fetcher.get("STAGE_TEMPLATE_DETAIL")?;
         let detail_rows = template_detail_fetcher
-            .fetch(Some(vec![WhereField {
-                field: "recruitment_stage_template_id".into(),
-                operator: "=".into(),
-                value: None,
-                values: Some(vec![template_id]),
-                casting: Some(CastingEnum::Uuid),
-            }]))
+            .fetch(Some(vec![uuid_values_filter(
+                "recruitment_stage_template_id",
+                vec![template_id],
+            )]))
             .await?;
 
         if detail_rows.is_empty() {
@@ -1372,6 +1448,7 @@ impl LsiImportVacancyV1 {
 
         self.append_config_scope_columns(config, &mut result)?;
         self.append_main_payload_columns(config, &mut result)?;
+        self.append_publish_on_rows(config, &mut result)?;
         self.append_stage_rows(rows, config, &mut result).await?;
         self.append_requirement_rows(rows, config, &mut result)
             .await?;
@@ -1428,5 +1505,52 @@ impl ImporterDatasetV1 for LsiImportVacancyV1 {
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::LsiImportVacancyV1;
+
+    #[test]
+    fn extracts_source_column_as_filterable_array() {
+        let value = LsiImportVacancyV1::filterable_value(
+            json!([{"id": "test"}]),
+            Some("id"),
+            None,
+            None,
+            true,
+        );
+
+        assert_eq!(value, Some(json!(["test"])));
+    }
+
+    #[test]
+    fn wraps_scalar_filterable_value_as_array() {
+        let value =
+            LsiImportVacancyV1::filterable_value(json!("published"), None, None, None, true);
+
+        assert_eq!(value, Some(json!(["published"])));
+    }
+
+    #[test]
+    fn extracts_job_position_custom_field_values() {
+        let value = LsiImportVacancyV1::filterable_value(
+            json!({
+                "id": "job-position-1",
+                "custom_fields": [
+                    {"field_key": "jobFunctionId", "field_type": "UUID", "value_id": "id1"},
+                    {"field_key": "jobFunctionId", "field_type": "UUID", "value_id": "id2"}
+                ]
+            }),
+            Some("custom_fields"),
+            Some("jobFunctionId"),
+            None,
+            true,
+        );
+
+        assert_eq!(value, Some(json!(["id1", "id2"])));
     }
 }

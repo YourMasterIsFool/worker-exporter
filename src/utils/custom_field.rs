@@ -1,9 +1,14 @@
+use std::collections::HashMap;
+
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::core::traits::orchestrator::{ImporterColumn, TypeDataEnum};
+use crate::{
+    core::traits::orchestrator::{ImporterColumn, TypeDataEnum},
+    utils::json_value::{first_non_null_object_value, CUSTOM_FIELD_VALUE_COLUMNS},
+};
 
 #[derive(Debug, Default)]
 pub struct CustomFieldTypedValue {
@@ -70,6 +75,61 @@ pub fn custom_field_value(row: &Value) -> Option<&Value> {
             row.get(camel_case)
         })
         .filter(|value| !value.is_null())
+}
+
+/// Resolves a custom-field value regardless of whether the source includes a
+/// usable `field_type`. This supports both EAV rows and snapshot JSON payloads.
+pub fn resolved_custom_field_value(row: &Value) -> Option<&Value> {
+    custom_field_value(row).or_else(|| {
+        let Value::Object(map) = row else {
+            return None;
+        };
+
+        CUSTOM_FIELD_VALUE_COLUMNS
+            .iter()
+            .find_map(|key| map.get(*key).filter(|value| !value.is_null()))
+    })
+}
+
+/// Groups EAV custom-field rows into `{ parent_id: { field_key: value } }`.
+/// `meta` remains a fallback for legacy values that do not use an EAV column.
+pub fn group_custom_field_values_by_parent(rows: &[Value]) -> HashMap<String, Value> {
+    let mut grouped = HashMap::<String, Map<String, Value>>::new();
+
+    for row in rows {
+        let Some(parent_id) = row.get("parent_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(field_key) = row.get("field_key").and_then(Value::as_str) else {
+            continue;
+        };
+
+        let value = resolved_custom_field_value(row)
+            .cloned()
+            .or_else(|| first_non_null_object_value(row, &["meta"]))
+            .unwrap_or(Value::Null);
+
+        grouped
+            .entry(parent_id.to_string())
+            .or_default()
+            .insert(field_key.to_string(), value);
+    }
+
+    grouped
+        .into_iter()
+        .map(|(parent_id, fields)| (parent_id, Value::Object(fields)))
+        .collect()
+}
+
+/// Indexes raw EAV custom-field rows by their parent and business field key.
+pub fn index_custom_field_rows_by_parent_and_key(rows: &[Value]) -> HashMap<String, Value> {
+    rows.iter()
+        .filter_map(|row| {
+            let parent_id = row.get("parent_id").and_then(Value::as_str)?;
+            let field_key = row.get("field_key").and_then(Value::as_str)?;
+            Some((format!("{parent_id}_{field_key}"), row.clone()))
+        })
+        .collect()
 }
 
 fn value_to_uuid(value: &Value) -> Option<Uuid> {
@@ -151,7 +211,10 @@ pub fn resolve_custom_field_typed_value(
 mod tests {
     use serde_json::json;
 
-    use super::{custom_field_keys_match, custom_field_value, resolve_custom_field_typed_value};
+    use super::{
+        custom_field_keys_match, custom_field_value, group_custom_field_values_by_parent,
+        index_custom_field_rows_by_parent_and_key, resolve_custom_field_typed_value,
+    };
     use crate::core::traits::orchestrator::TypeDataEnum;
 
     #[test]
@@ -178,5 +241,43 @@ mod tests {
     #[test]
     fn treats_camel_and_snake_case_keys_as_equivalent() {
         assert!(custom_field_keys_match("noRR", "no_rr"));
+    }
+
+    #[test]
+    fn groups_values_by_parent_and_field_key() {
+        let rows = vec![
+            json!({
+                "parent_id": "vacancy-1",
+                "field_key": "jobGradeId",
+                "field_type": "UUID",
+                "value_id": "grade-1"
+            }),
+            json!({
+                "parent_id": "vacancy-1",
+                "field_key": "legacyField",
+                "meta": {"name": "legacy"}
+            }),
+        ];
+
+        let grouped = group_custom_field_values_by_parent(&rows);
+
+        assert_eq!(grouped["vacancy-1"]["jobGradeId"], json!("grade-1"));
+        assert_eq!(
+            grouped["vacancy-1"]["legacyField"],
+            json!({"name": "legacy"})
+        );
+    }
+
+    #[test]
+    fn indexes_raw_rows_by_parent_and_field_key() {
+        let rows = vec![json!({
+            "parent_id": "candidate-1",
+            "field_key": "height",
+            "value_number": "175"
+        })];
+
+        let indexed = index_custom_field_rows_by_parent_and_key(&rows);
+
+        assert_eq!(indexed["candidate-1_height"]["value_number"], json!("175"));
     }
 }

@@ -1,5 +1,10 @@
 use std::sync::Arc;
 
+use moka::future::Cache;
+use serde_json::Value;
+use tokio::sync::RwLock;
+
+use crate::application::datasets::export::ats::applicant_dataset::ApplicantDataset;
 use crate::application::datasets::export::ats::lsi_candidate_dataset::LsiCandidateDataset;
 use crate::application::datasets::import::ats::ats_import_lsi_vacancy_dataset::AtsImportLsiVacancyDataset;
 use crate::application::datasets::import::ats::lsi_import_vacancy_v1::LsiImportVacancyV1;
@@ -40,6 +45,15 @@ pub fn build_dataset_registry(
             grpc_service: grpc_service.clone(),
         }),
     );
+
+    let applicant_dataset = Arc::new(ApplicantDataset {
+        source: source_registry,
+        fetcher: data_fetcher_registry,
+        export_cache: Arc::new(RwLock::new(None::<Cache<String, Value>>)),
+        cached_fetchers: Arc::new(RwLock::new(Default::default())),
+    });
+    registry.register("lsi_applicant_dataset", applicant_dataset.clone());
+    registry.register("APPLICANT_DATASET", applicant_dataset);
 
     registry
 }

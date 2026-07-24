@@ -1,3 +1,5 @@
+use moka::future::Cache;
+
 use crate::core::traits::dataset_trait::Dataset;
 use crate::core::types::ExportRow;
 use crate::{
@@ -26,6 +28,7 @@ impl ExportRunner {
         filters: Option<Vec<WhereField>>,
         cursor: &mut Option<String>,
         limit: i64,
+        cache: &Cache<String, serde_json::Value>,
     ) -> anyhow::Result<()>
     where
         D: Dataset + Send + Sync + ?Sized,
@@ -42,7 +45,10 @@ impl ExportRunner {
 
         writter.write_headers(&headers)?;
 
-        let columns = fields.iter().map(|f| f.column.clone()).collect::<Vec<_>>(); // writing_headers
+        let columns = fields
+            .iter()
+            .map(|field| field.column.clone().unwrap_or_default())
+            .collect::<Vec<_>>(); // writing_headers
 
         // let filters: Vec<WhereField> = vec![WhereField {
         //     field: "tenant_id".into(),
@@ -55,7 +61,7 @@ impl ExportRunner {
 
         loop {
             let (result, new_cursor) = dataset
-                .fetch_batch(&strategy_enum, cursor.clone(), limit)
+                .fetch_batch_with_config(&strategy_enum, cursor.clone(), limit, fields, cache)
                 .await?;
             if result.is_empty() {
                 break;

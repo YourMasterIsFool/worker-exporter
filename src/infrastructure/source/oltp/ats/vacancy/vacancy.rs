@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, QueryBuilder};
+use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder};
 use tracing::instrument;
 // Untuk jsonb
 use uuid::Uuid;
@@ -31,6 +31,8 @@ pub struct IngestionAtsVacancyModel {
     // pub tenant_id: Uuid,
     // pub group_id: Uuid,
     pub name: String,
+    pub work_location_id: Option<Uuid>,
+    pub work_location_meta: Option<JsonValue>,
     // pub description: Option<String>,
     // pub requirement_stage_template_id: Option<Uuid>,
     // pub recruitment_form_template_id: Option<Uuid>,
@@ -117,8 +119,8 @@ impl BuildTableTrait<AtsIngestionTable> for AtsVacancySource {
             // "employment_status_meta",
             // "work_placement_type_id",
             // "work_placement_type_meta",
-            // "work_location_id",
-            // "work_location_meta",
+            "work_location_id",
+            "work_location_meta",
             // "total_hired",
             // "keywords",
             // "filterable_attribute",

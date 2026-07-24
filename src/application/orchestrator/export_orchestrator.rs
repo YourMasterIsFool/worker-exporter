@@ -1,6 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Ok;
+use moka::future::Cache;
 use serde::Serialize;
 use serde_json::json;
 use tracing::instrument;
@@ -48,6 +49,7 @@ pub struct ExportOrchestrator {
     pub dataset: Arc<DatasetRegistry>,
     pub grpc_service: Arc<GrpcService>,
     pub publisher: Arc<dyn Publisher>,
+    pub local_cache: Cache<String, serde_json::Value>,
 }
 
 #[async_trait::async_trait]
@@ -75,7 +77,7 @@ impl Orchestrator for ExportOrchestrator {
             cursor: None,
             stream_id: msg_id.to_string().clone(),
             config: Some(serde_json::to_value(job.clone())?),
-            created_at:None
+            created_at: None,
         };
 
         // create logging first
@@ -185,6 +187,7 @@ impl Orchestrator for ExportOrchestrator {
                 Some(job_filter),
                 &mut cursor,
                 config.chunk,
+                &self.local_cache,
             )
             .await;
 
@@ -273,6 +276,7 @@ impl Orchestrator for ExportOrchestrator {
             // }
         }
         self.logging.mark_as_completed(msg_id).await?;
+        self.local_cache.invalidate_all();
 
         Ok(())
     }

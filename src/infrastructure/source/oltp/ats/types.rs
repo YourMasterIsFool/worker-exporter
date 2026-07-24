@@ -5,6 +5,7 @@ pub enum AtsIngestionTable {
     Vacancy,
     VacancyCustomField,
     ApplicantBucket,
+    ApplicantSnapshot,
     CandidateClientField,
     RequirementStageTemplate,
     RequirementStageTemplateDetail,
@@ -22,6 +23,7 @@ impl AtsIngestionTable {
             AtsIngestionTable::Vacancy => "vacancy.vacancy",
             AtsIngestionTable::VacancyCustomField => "vacancy.vacancy_custom_field",
             AtsIngestionTable::ApplicantBucket => "applicant.applicant_bucket",
+            AtsIngestionTable::ApplicantSnapshot => "applicant.applicant_snapshots",
             AtsIngestionTable::CandidateClientField => "candidate.candidate_client_field",
             AtsIngestionTable::RequirementStageTemplate => "applicant.recruitment_stage_template",
             AtsIngestionTable::RequirementStageTemplateDetail => {

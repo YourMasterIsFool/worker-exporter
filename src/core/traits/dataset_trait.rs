@@ -7,7 +7,7 @@ use moka::future::Cache;
 use crate::core::{
     traits::{
         load::LoadEnum,
-        orchestrator::{ImporterColumn, ImporterConfig},
+        orchestrator::{ExporterColumn, ImporterColumn, ImporterConfig},
     },
     types::{
         ExportRow, ImportDatasetConfig, ImportTableResult, SycnTableResult, SyncPayloadDataset,
@@ -34,6 +34,26 @@ pub trait Dataset {
     ) -> Result<(Vec<ExportRow>, Option<String>)>;
 
     async fn get_min_cursor(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<String>;
+
+    async fn configure_export(
+        &self,
+        _fields: &[ExporterColumn],
+        _cache: &Cache<String, serde_json::Value>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn fetch_batch_with_config(
+        &self,
+        strategy_enum: &LoadEnum,
+        cursor: Option<String>,
+        limit: i64,
+        _fields: &[ExporterColumn],
+        _cache: &Cache<String, serde_json::Value>,
+    ) -> Result<(Vec<ExportRow>, Option<String>)> {
+        self.configure_export(_fields, _cache).await?;
+        self.fetch_batch(strategy_enum, cursor, limit).await
+    }
 }
 
 #[async_trait::async_trait]

@@ -4,7 +4,8 @@ use anyhow::Context;
 use futures_util::future::try_join_all;
 use moka::future::Cache;
 use rust_xlsxwriter::{
-    DataValidation, Format, FormatAlign, FormatBorder, Formula, Workbook, Worksheet,
+    DataValidation, DataValidationRule, Format, FormatAlign, FormatBorder, Formula, Workbook,
+    Worksheet,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -21,6 +22,7 @@ pub struct GeneratedEmailTemplateUsecase {
 pub enum ValueType {
     MultipleSelect,
     Select,
+    Number,
     Text,
 }
 
@@ -30,6 +32,10 @@ pub struct ExampleValue {
     #[serde(alias = "valueType")]
     pub value_type: Option<ValueType>,
     pub fetcher: Option<String>,
+    /// Pilihan statis untuk field select/multipleSelect. Jika berisi, pilihan
+    /// ini dipakai dan fetcher tidak dipanggil.
+    #[serde(default)]
+    pub options: Option<Vec<String>>,
     pub filter: Option<Vec<WhereField>>,
     #[serde(default, alias = "usingCache")]
     pub using_cache: bool,
@@ -174,7 +180,30 @@ impl GeneratedEmailTemplateUsecase {
                 if let Some(example) = example_values.get(col) {
                     if let Some(value) = example.value.as_ref() {
                         let value = example_value_to_string(value, example.value_type);
-                        main_sheet.write_string_with_format(1, column, &value, &example_format)?;
+                        if matches!(example.value_type, Some(ValueType::Number)) {
+                            if let Ok(number) = value.parse::<f64>() {
+                                main_sheet.write_number_with_format(
+                                    1,
+                                    column,
+                                    number,
+                                    &example_format,
+                                )?;
+                            } else {
+                                main_sheet.write_string_with_format(
+                                    1,
+                                    column,
+                                    &value,
+                                    &example_format,
+                                )?;
+                            }
+                        } else {
+                            main_sheet.write_string_with_format(
+                                1,
+                                column,
+                                &value,
+                                &example_format,
+                            )?;
+                        }
                     }
                 }
             }
@@ -192,29 +221,61 @@ impl GeneratedEmailTemplateUsecase {
                     return None;
                 }
 
+                let options = example.options.clone().unwrap_or_default();
                 let fetcher_name = example
                     .fetcher
                     .as_deref()
                     .map(str::trim)
-                    .filter(|value| !value.is_empty())?
-                    .to_owned();
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned);
                 let filters = example.filter.clone();
                 let using_cache = example.using_cache;
-                let display_field = lookup_display_field(&fetcher_name);
+                let display_field = fetcher_name
+                    .as_deref()
+                    .map(lookup_display_field)
+                    .unwrap_or("name");
                 let title = headers
                     .get(header_index)
                     .map(|header| header.header.clone())
-                    .unwrap_or_else(|| fetcher_name.clone());
+                    .unwrap_or_else(|| fetcher_name.clone().unwrap_or_else(|| "Options".into()));
 
                 Some(async move {
-                    let rows = self
-                        .fetch_lookup_rows(
-                            &fetcher_name,
-                            filters.clone(),
-                            display_field,
-                            using_cache,
-                        )
-                        .await?;
+                    let (rows, lookup_key, fetcher_name) = if !options.is_empty() {
+                        let rows: Arc<[LookupRow]> = options
+                            .iter()
+                            .map(|value| LookupRow {
+                                id: value.clone(),
+                                name: value.clone(),
+                            })
+                            .filter(|row| !row.name.trim().is_empty())
+                            .collect::<Vec<_>>()
+                            .into();
+                        let lookup_key: String = format!(
+                            "static-options:{}",
+                            serde_json::to_string(
+                                &rows
+                                    .iter()
+                                    .map(|row: &LookupRow| &row.name)
+                                    .collect::<Vec<_>>()
+                            )?
+                        );
+                        (rows, lookup_key, "__OPTIONS__".to_owned())
+                    } else {
+                        let fetcher_name = fetcher_name.ok_or_else(|| {
+                            anyhow::anyhow!("fetcher is required when options is empty")
+                        })?;
+                        let rows = self
+                            .fetch_lookup_rows(
+                                &fetcher_name,
+                                filters.clone(),
+                                display_field,
+                                using_cache,
+                            )
+                            .await?;
+                        let lookup_key =
+                            Self::lookup_cache_key(&fetcher_name, &filters, display_field);
+                        (rows, lookup_key, fetcher_name)
+                    };
                     Ok::<_, anyhow::Error>((
                         header_index,
                         title,
@@ -222,6 +283,7 @@ impl GeneratedEmailTemplateUsecase {
                         filters,
                         display_field,
                         rows,
+                        lookup_key,
                     ))
                 })
             },
@@ -230,7 +292,7 @@ impl GeneratedEmailTemplateUsecase {
         let lookups = lookup_fetches.await?;
         let lookup_row_count = lookups
             .iter()
-            .map(|(_, _, _, _, _, rows)| rows.len())
+            .map(|(_, _, _, _, _, rows, _)| rows.len())
             .sum::<usize>();
         log_template_memory(
             "after_lookup",
@@ -247,8 +309,8 @@ impl GeneratedEmailTemplateUsecase {
         let mut validation_ranges = Vec::new();
         let mut lookup_table_count = 0usize;
 
-        for (header_index, title, fetcher_name, filters, display_field, rows) in lookups {
-            let lookup_key = Self::lookup_cache_key(&fetcher_name, &filters, display_field);
+        for (header_index, title, fetcher_name, filters, display_field, rows, lookup_key) in lookups
+        {
             if let Some(range_name) = lookup_ranges.get(&lookup_key) {
                 validation_ranges.push((header_index, range_name.clone()));
                 continue;
@@ -296,6 +358,26 @@ impl GeneratedEmailTemplateUsecase {
                 // Row 0 is the header. Row 1 is the first import row (the
                 // importer skips only the header), so validation must start
                 // there as well.
+                1,
+                header_index as u16,
+                1000,
+                header_index as u16,
+                &validation,
+            )?;
+        }
+
+        // Field bertipe number hanya menerima angka di Excel. Excel akan
+        // menampilkan error dan menolak nilai teks (style Stop adalah default).
+        for (header_index, example) in example_values.iter().enumerate() {
+            if !matches!(example.value_type, Some(ValueType::Number)) {
+                continue;
+            }
+
+            let validation = DataValidation::new()
+                .allow_decimal_number(DataValidationRule::Between(-1.0e308_f64, 1.0e308_f64))
+                .set_error_title("Invalid number")?
+                .set_error_message("Please enter a numeric value.")?;
+            main_sheet.add_data_validation(
                 1,
                 header_index as u16,
                 1000,

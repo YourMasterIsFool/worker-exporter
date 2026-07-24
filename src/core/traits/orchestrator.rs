@@ -5,7 +5,17 @@ use crate::core::types::ValidationConfig;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterColumn {
     pub name: String,
-    pub column: String,
+    pub column: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetcher: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetcher_field_filter: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetcher_field_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetcher_key: Option<String>,
+    #[serde(default)]
+    pub is_cache: bool,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterConfig {
@@ -93,6 +103,19 @@ pub struct SequentialTable {
 pub struct Filterable {
     pub main_column: String,
     pub import_column: String,
+    #[serde(default, alias = "isArray")]
+    pub is_array: bool,
+    #[serde(default, alias = "sourceColumn")]
+    pub source_column: Option<String>,
+    #[serde(
+        default,
+        alias = "fieldKey",
+        alias = "customFieldKey",
+        alias = "custom_field_key"
+    )]
+    pub field_key: Option<String>,
+    #[serde(default, alias = "valueColumn")]
+    pub value_column: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

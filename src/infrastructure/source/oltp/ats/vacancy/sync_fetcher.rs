@@ -141,6 +141,17 @@ impl VacancySyncFetcher {
         "logging_id",
     ];
 
+    pub const PUBLISH_ON_COLUMNS: &'static [&'static str] = &[
+        "id",
+        "updated_at",
+        "created_at",
+        "deleted_at",
+        "vacancy_id",
+        "platform",
+        "status",
+        "careersite_tenant_id",
+    ];
+
     pub fn master_table() -> VacancySyncTable {
         VacancySyncTable {
             table: "warehouse.ats_vacancy_temporary",
@@ -180,6 +191,14 @@ impl VacancySyncFetcher {
                 table: VacancySyncTable {
                     table: "warehouse.ats_vacancy_pic",
                     columns: Self::PIC_COLUMNS,
+                },
+            },
+            VacancyChildSyncFetcher {
+                fetcher: "WAREHOUSE_ATS_VACANCY_PUBLISH_ON",
+                filter_field: "vacancy_id",
+                table: VacancySyncTable {
+                    table: "warehouse.vacancy_publish_on",
+                    columns: Self::PUBLISH_ON_COLUMNS,
                 },
             },
         ]

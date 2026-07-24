@@ -46,6 +46,24 @@ RUST_LOG=info cargo run --bin http_worker
 
 Field penting dalam log meliputi `msg_id`, `tenant_id`, `logging_id`, `stream`, dan `types`. Jangan mencatat atau menyalin URL pre-signed maupun kredensial database ke sistem log eksternal tanpa kebijakan masking.
 
+## Cache lookup dan file sementara
+
+Cache fetcher menggunakan Moka dengan TTL 30 menit dan kapasitas maksimum 5.000 entry per
+orchestrator. Key dinormalisasi menjadi `<FETCHER_UPPERCASE>:<token-trim-lowercase>`, sehingga
+lookup dengan variasi spasi atau uppercase/lowercase dapat memakai entry yang sama. Cache
+dibersihkan setelah job import/export selesai.
+
+Pada IMPORT, dependency fetcher diprefetch secara batch per chunk. `import_config.fetcher_caching`
+menentukan fetcher yang boleh dipakai kembali oleh dynamic dataset saat lookup lanjutan. Pada
+EXPORT applicant, `export_config.fields[].is_cache = true` mengaktifkan cache untuk fetcher
+internal applicant, vacancy, job grade, dan work location yang relevan.
+
+Untuk stream IMPORT, file diunduh ke `/tmp/worker-exporter-import-<uuid>.xlsx`, dibaca sebagai
+workbook, lalu dihapus setelah proses selesai. Jika muncul `relative URL without a base`, URL
+hasil facilitator bukan URL absolut; periksa response `get_download_url` dan pastikan URL dapat
+diakses dari container worker. Jika muncul warning cleanup, periksa permission dan kapasitas
+filesystem `/tmp`.
+
 ## Operasi database
 
 - Terapkan migrasi warehouse sebelum deployment yang memakai schema baru.
@@ -64,14 +82,14 @@ Field penting dalam log meliputi `msg_id`, `tenant_id`, `logging_id`, `stream`, 
 
 ### Menambah dataset export
 
-1. Implementasikan trait `Dataset` di `src/infrastructure/datasets/export/`.
+1. Implementasikan trait `Dataset` di `src/application/datasets/export/`.
 2. Register di `build_dataset_registry()`.
 3. Dokumentasikan kolom yang dapat dipilih pada `export_config.fields[].column`.
 4. Kirim job dengan key registry pada `export_config.dataset`.
 
 ### Menambah import dataset atau loader
 
-1. Implementasikan `ImporterDatasetV1` untuk mapper Excel baru di `src/infrastructure/datasets/import/`.
+1. Implementasikan `ImporterDatasetV1` untuk mapper Excel baru di `src/application/datasets/import/`.
 2. Register key di `build_importer_dataset_registry_v1()`.
 3. Implementasikan/daftarkan `ImportLoadPersitence` bila target tabel temporary baru diperlukan.
 4. Tambahkan konfigurasi mapping kolom dan contoh payload di [panduan penggunaan](usage.md).
@@ -101,6 +119,7 @@ Poin ketiga sangat penting: registry memakai pencocokan string exact. Misalnya k
 | INGESTION | Stream/group tersedia tetapi orchestrator `ingestion` tidak didaftarkan. | Jangan gunakan untuk job production. |
 | Retry Redis | Pesan di-ACK setelah kegagalan handler. | Retry harus dilakukan producer atau tooling eksternal. |
 | Pending claim | Tidak ada `XAUTOCLAIM`/recovery pending entry. | Buat runbook atau consumer pemulihan. |
+| Stream import temporary file | File `/tmp/worker-exporter-import-<uuid>.xlsx` dihapus setelah proses. | Pastikan worker dapat menulis `/tmp`; warning cleanup perlu ditindaklanjuti. |
 | Retensi export | File lokal tidak dihapus otomatis setelah upload. | Monitor ukuran `exports/` atau gunakan ephemeral storage/janitor. |
 | Validasi payload | Endpoint `/test-import` meneruskan JSON tanpa validasi. | Validasi payload sebelum publish pada caller produksi. |
 | Dependency startup | Lima database dan dua gRPC URL wajib. | Health service tidak akan hidup saat satu dependency unavailable. |

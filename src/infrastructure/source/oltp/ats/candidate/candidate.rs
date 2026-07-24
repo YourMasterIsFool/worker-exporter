@@ -235,6 +235,8 @@ impl SourceIncrementalExtract for AtsCandidateSource {
             filters = filter.clone();
         }
 
+        println!("candidate filter {:?}", filters);
+
         incremental_resolver
             .with_filters(&filters)
             .with_cursor(cursor)

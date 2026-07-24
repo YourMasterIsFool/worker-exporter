@@ -27,6 +27,7 @@ use crate::{
 pub struct IngestionJobPositionModel {
     pub id: Uuid,
     pub position_name: String,
+    pub custom_fields: serde_json::Value,
 }
 pub struct IngestionOrganizationJobPositionSource {
     pub pool: Arc<OrganizationClient>,
@@ -42,6 +43,15 @@ impl BuildTableTrait<OrganizationTableEnum> for IngestionOrganizationJobPosition
         &[
             "id",
             "position_name",
+            r#"COALESCE(
+                (
+                    SELECT jsonb_agg(to_jsonb(job_position_custom_field) ORDER BY job_position_custom_field.created_at)
+                    FROM core.job_position_custom_fields AS job_position_custom_field
+                    WHERE job_position_custom_field.parent_id = core.job_positions.id
+                        AND job_position_custom_field.deleted_at IS NULL
+                ),
+                '[]'::jsonb
+            ) AS custom_fields"#,
             // "description",
             // "tenant_id",
             // "group_id",
@@ -66,8 +76,9 @@ impl DataFetcherJson for IngestionOrganizationJobPositionSource {
         filters: Option<Vec<WhereField>>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         let sql = format!(
-            " SELECT id, position_name from {} ",
-            self.table().table_name()
+            "SELECT {} FROM {}",
+            self.columns().join(", "),
+            self.table().table_name(),
         );
 
         let mut qb = QueryBuilder::new(&sql);

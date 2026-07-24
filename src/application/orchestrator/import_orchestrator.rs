@@ -1,9 +1,12 @@
-use calamine::{open_workbook_auto_from_rs, DataType, Reader};
+use calamine::{open_workbook_auto, open_workbook_auto_from_rs, DataType, Reader};
+use futures_util::StreamExt;
 use moka::future::Cache;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::result;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument};
 use tracing_subscriber::field;
 use tracing_subscriber::fmt::format;
@@ -306,107 +309,145 @@ impl ImportOrchestrator {
     ) -> anyhow::Result<()> {
         let _ = import_pipeline;
 
-        
-        let response = reqwest::get(url).await?.error_for_status()?;
-        let bytes = response.bytes().await?;
-        
-        // let bytes = tokio::fs::read("template_import_v35.xlsx").await?;
+        let temp_file_path = PathBuf::from(format!(
+            "/tmp/worker-exporter-import-{}.xlsx",
+            uuid::Uuid::now_v7()
+        ));
 
-        // tracing::info!(
-        //     logging_id = logging_id,
-        //     url = url,
-        //     bytes = bytes.len(),
-        //     "Membuka workbook import dari template lokal."
-        // );
+        let process_result: anyhow::Result<()> = async {
+            let response = reqwest::get(url).await?.error_for_status()?;
+            let mut response_stream = response.bytes_stream();
+            let mut temp_file = tokio::fs::File::create(&temp_file_path).await?;
+            let mut downloaded_bytes = 0usize;
 
-        let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes)).map_err(|err| {
-            tracing::error!("Gagal membuka workbook dari response: {}", err);
-            err
-        })?;
+            while let Some(chunk) = response_stream.next().await {
+                let chunk = chunk?;
+                downloaded_bytes += chunk.len();
+                temp_file.write_all(&chunk).await?;
+            }
+            temp_file.flush().await?;
+            drop(temp_file);
 
-        let sheet_name = workbook.sheet_names()[0].clone();
-        let range = workbook.worksheet_range(&sheet_name)?;
-        let header_row = range.rows().next().unwrap_or(&[]);
-        let field_headers = dataset_config
-            .import_config
-            .fields
-            .iter()
-            .map(|field| field.header.as_str())
-            .collect::<Vec<_>>();
-        let template_column_indexes = resolve_template_column_indexes(header_row, &field_headers);
+            tracing::info!(
+                logging_id = logging_id,
+                url = url,
+                path = %temp_file_path.display(),
+                bytes = downloaded_bytes,
+                "Download import selesai, membuka workbook dari file sementara."
+            );
 
-        tracing::info!(
-            fields = ?dataset_config
+            let mut workbook = open_workbook_auto(&temp_file_path).map_err(|err| {
+                tracing::error!(
+                    path = %temp_file_path.display(),
+                    error = %err,
+                    "Gagal membuka workbook dari file sementara"
+                );
+                err
+            })?;
+
+            let sheet_name = workbook.sheet_names()[0].clone();
+            let range = workbook.worksheet_range(&sheet_name)?;
+            let header_row = range.rows().next().unwrap_or(&[]);
+            let field_headers = dataset_config
                 .import_config
                 .fields
                 .iter()
                 .map(|field| field.header.as_str())
-                .collect::<Vec<_>>(),
-            column_indexes = ?template_column_indexes,
-            "Resolved import values from workbook headers"
-        );
+                .collect::<Vec<_>>();
+            let template_column_indexes =
+                resolve_template_column_indexes(header_row, &field_headers);
 
-        let chunk_limit = dataset_config.import_config.chunk as usize;
+            tracing::info!(
+                fields = ?dataset_config
+                    .import_config
+                    .fields
+                    .iter()
+                    .map(|field| field.header.as_str())
+                    .collect::<Vec<_>>(),
+                column_indexes = ?template_column_indexes,
+                "Resolved import values from workbook headers"
+            );
 
-        let mut raw_row_buffer: Vec<Vec<calamine::Data>> = vec![];
-        // `start_row` menggunakan nomor baris Excel (1-based). Default mulai
-        // dari baris 2 agar baris pertama yang biasanya berisi header dilewati.
-        let start_row = dataset_config.import_config.start_row.unwrap_or(2);
-        let mut row_iter = range.rows().skip(start_row.saturating_sub(1) as usize);
+            let chunk_limit = dataset_config.import_config.chunk as usize;
 
-        loop {
-            raw_row_buffer.clear();
-            for _ in 0..chunk_limit {
-                if let Some(row) = row_iter.next() {
-                    raw_row_buffer.push(resolve_template_row(row, &template_column_indexes));
-                } else {
+            let mut raw_row_buffer: Vec<Vec<calamine::Data>> = vec![];
+            // `start_row` menggunakan nomor baris Excel (1-based). Default mulai
+            // dari baris 2 agar baris pertama yang biasanya berisi header dilewati.
+            let start_row = dataset_config.import_config.start_row.unwrap_or(2);
+            let mut row_iter = range.rows().skip(start_row.saturating_sub(1) as usize);
+
+            loop {
+                raw_row_buffer.clear();
+                for _ in 0..chunk_limit {
+                    if let Some(row) = row_iter.next() {
+                        raw_row_buffer.push(resolve_template_row(row, &template_column_indexes));
+                    } else {
+                        break;
+                    }
+                }
+
+                if raw_row_buffer.is_empty() {
                     break;
                 }
-            }
 
-            if raw_row_buffer.is_empty() {
-                break;
-            }
+                let raw_row_refs = raw_row_buffer.iter().map(Vec::as_slice).collect::<Vec<_>>();
 
-            let raw_row_refs = raw_row_buffer.iter().map(Vec::as_slice).collect::<Vec<_>>();
+                if let Err(err) = self
+                    .pre_fetch_chunk_dependencies(&raw_row_refs, dataset_config)
+                    .await
+                {
+                    tracing::error!("Gagal menjalankan pre-fetch batch cache: {:?}", err);
+                }
 
-            if let Err(err) = self
-                .pre_fetch_chunk_dependencies(&raw_row_refs, dataset_config)
-                .await
-            {
-                tracing::error!("Gagal menjalankan pre-fetch batch cache: {:?}", err);
-            }
+                let mut chunk_batch = dataset
+                    .import_batch(&raw_row_refs, dataset_config, &self.local_cache)
+                    .await?;
 
-            let mut chunk_batch = dataset
-                .import_batch(&raw_row_refs, dataset_config, &self.local_cache)
-                .await?;
-
-            for row_data in &mut chunk_batch {
-                for (_table_name, table_result) in row_data.iter_mut() {
-                    if table_result.strategy == TableStrategy::Eav {
-                        continue;
+                for row_data in &mut chunk_batch {
+                    for (_table_name, table_result) in row_data.iter_mut() {
+                        if table_result.strategy == TableStrategy::Eav {
+                            continue;
+                        }
+                        table_result.columns.push("logging_id".to_string());
+                        for row_values in table_result.values.iter_mut() {
+                            row_values.push(Value::String(logging_id.to_string()));
+                        }
                     }
-                    table_result.columns.push("logging_id".to_string());
-                    for row_values in table_result.values.iter_mut() {
-                        row_values.push(Value::String(logging_id.to_string()));
-                    }
+                }
+
+                if !chunk_batch.is_empty() {
+                    tracing::info!(
+                        logging_id = logging_id,
+                        "Flushing optimized stream chunk batch: {} rows",
+                        chunk_batch.len()
+                    );
+
+                    import_load_registry
+                        .load(&chunk_batch, logging_id, &dataset_config)
+                        .await?;
                 }
             }
 
-            if !chunk_batch.is_empty() {
-                tracing::info!(
-                    logging_id = logging_id,
-                    "Flushing optimized stream chunk batch: {} rows",
-                    chunk_batch.len()
-                );
+            Ok(())
+        }
+        .await;
 
-                import_load_registry
-                    .load(&chunk_batch, logging_id, &dataset_config)
-                    .await?;
-            }
+        match tokio::fs::remove_file(&temp_file_path).await {
+            Ok(()) => tracing::info!(
+                logging_id = logging_id,
+                path = %temp_file_path.display(),
+                "File sementara import berhasil dihapus"
+            ),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => tracing::warn!(
+                logging_id = logging_id,
+                path = %temp_file_path.display(),
+                error = %err,
+                "Gagal menghapus file sementara import"
+            ),
         }
 
-        Ok(())
+        process_result
     }
 
     async fn process_buffer_mode(
@@ -522,28 +563,21 @@ impl Orchestrator for ImportOrchestrator {
             let import_load_registry = self.import_load_registry.get(&import_config.loader)?;
 
             let dataset = self.import_datasetV1.get(&import_config.dataset)?;
-            let download_url = if import_config.data_source_type == "buffer" {
-                let key = &import_config.key;
-                let payload_download_url = vec![key.clone()];
-                let get_file = self
-                    .grpc_service
-                    .s3_facilitator_grpc
-                    .get_download_url(payload_download_url)
-                    .await?;
-                let items_download = get_file.into_inner().items;
-                tracing::info!("items_download: {:?}", items_download);
+            let payload_download_url = vec![import_config.key.clone()];
+            let get_file = self
+                .grpc_service
+                .s3_facilitator_grpc
+                .get_download_url(payload_download_url)
+                .await?;
+            let items_download = get_file.into_inner().items;
+            tracing::info!("items_download: {:?}", items_download);
 
-                if items_download.is_empty() {
-                    tracing::error!("No download URL returned");
-                    return Err(anyhow::anyhow!("No download URL returned"));
-                }
+            if items_download.is_empty() {
+                tracing::error!("No download URL returned");
+                return Err(anyhow::anyhow!("No download URL returned"));
+            }
 
-                items_download[0].url.clone()
-            } else {
-                // Sementara proses stream memakai workbook yang sudah ada di root
-                // untuk pengecekan lokal, tanpa upload atau request URL baru.
-                "template_import_v35.xlsx".to_string()
-            };
+            let download_url = items_download[0].url.clone();
             let import_pipeline = self.import_pipeline.get(&import_config.pipeline)?;
             let dataset_config = ImportDatasetConfig {
                 where_fields: None,

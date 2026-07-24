@@ -21,6 +21,7 @@ use crate::{
             ats::{
                 applicant::{
                     applicant_bucket::AtsApplicantBucketSource,
+                    applicant_snapshot::AtsApplicantSnapshotSource,
                     requirement_stage_template::IngestionRequirementStageTemplateSource,
                     requirement_stage_template_detail::IngestionRequirementStageTemplateDetailSource,
                 },
@@ -42,6 +43,7 @@ use crate::{
                     ingestion_job_grade::IngestionJobGradeSource,
                     ingestion_job_level::IngestionJobLevelSource,
                     ingestion_job_position::IngestionOrganizationJobPositionSource,
+                    ingestion_job_position_custom_field::IngestionJobPositionCustomFieldSource,
                     ingestion_organization_unit::IngestionOrganizationUnitSource,
                 },
                 organization_postgres_client::OrganizatinPostgresClient,
@@ -50,6 +52,7 @@ use crate::{
         source::warehouse::temporary::ats::{
             ats_vacancy_custom_field_temporary::AtsVacancyCustomFieldTemporarySource,
             ats_vacancy_pic_temporary::AtsVacancyPicTemporarySource,
+            ats_vacancy_publish_on_temporary::AtsVacancyPublishOnTemporarySource,
             ats_vacancy_requirement_temporary::AtsVacancyRequirementTemporarySource,
             ats_vacancy_stage_temporary::AtsVacancyStageTemporarySource,
             ats_vacancy_temporary::AtsVacancyTemporarySource,
@@ -131,6 +134,13 @@ pub fn build_data_fetcher_json_registry(
     );
 
     registry.register(
+        "ats_applicant_snapshot_fetcher",
+        Arc::new(AtsApplicantSnapshotSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
         "WAREHOUSE_ATS_VACANCY_STAGE",
         Arc::new(AtsVacancyStageTemporarySource {
             pool: manager.warehouse.clone(),
@@ -161,6 +171,13 @@ pub fn build_data_fetcher_json_registry(
     registry.register(
         "WAREHOUSE_ATS_VACANCY_PIC",
         Arc::new(AtsVacancyPicTemporarySource {
+            pool: manager.warehouse.clone(),
+        }),
+    );
+
+    registry.register(
+        "WAREHOUSE_ATS_VACANCY_PUBLISH_ON",
+        Arc::new(AtsVacancyPublishOnTemporarySource {
             pool: manager.warehouse.clone(),
         }),
     );
@@ -245,6 +262,20 @@ pub fn build_data_fetcher_json_registry(
     registry.register(
         "JOB_POSITION",
         Arc::new(IngestionOrganizationJobPositionSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
+    registry.register(
+        "JOB_POSITION_CUSTOM_FIELD",
+        Arc::new(IngestionJobPositionCustomFieldSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
+    registry.register(
+        "JOB_POSITION_CUSTOM_FIELDS",
+        Arc::new(IngestionJobPositionCustomFieldSource {
             pool: manager.organization.clone(),
         }),
     );
