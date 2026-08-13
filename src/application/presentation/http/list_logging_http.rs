@@ -1,9 +1,12 @@
-use std::sync::Arc;
+use std::{env, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     Json,
 };
+use chrono::{DateTime, NaiveDateTime};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -19,6 +22,7 @@ use crate::{
 };
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PayloadLogging {
     pub _auth_context: AuthContextPayload,
     #[serde(default, alias = "filters")]
@@ -53,30 +57,56 @@ pub enum LoggingTypeFilter {
 #[derive(Debug, Serialize)]
 pub struct ListLoggingItem {
     pub id: Option<String>,
+    pub created_at: Option<DateTime<Tz>>,
     pub logging_type: String,
+    pub status: String,
     pub email: String,
     pub total_chunk: i32,
     pub current_chunk: i32,
     pub processed_count: i32,
     pub total_count: i64,
-    pub completed_at: Option<chrono::NaiveDateTime>,
+    pub completed_at: Option<DateTime<Tz>>,
     pub download_url: Option<String>,
 }
 
-impl From<LoggingEntity> for ListLoggingItem {
-    fn from(logging: LoggingEntity) -> Self {
+impl ListLoggingItem {
+    fn from_logging(logging: LoggingEntity, timezone: Tz) -> Self {
         Self {
             id: logging.id,
+            created_at: resolve_timestamp(logging.created_at, timezone),
             email: logging.email,
             total_chunk: logging.total_chunk,
             current_chunk: logging.current_chunk,
             processed_count: logging.processed_count,
             total_count: logging.total_count,
-            completed_at: logging.completed_at,
+            completed_at: resolve_timestamp(logging.completed_at, timezone),
             download_url: logging.download_url,
             logging_type: logging.logging_type,
+            status: logging.status,
         }
     }
+}
+
+fn resolve_timestamp(timestamp: Option<NaiveDateTime>, timezone: Tz) -> Option<DateTime<Tz>> {
+    timestamp.map(|timestamp| timestamp.and_utc().with_timezone(&timezone))
+}
+
+fn request_timezone(headers: &HeaderMap) -> Result<Tz, AppError> {
+    let timezone = headers
+        .get("X-TIMEZONE")
+        .map(|value| value.to_str())
+        .transpose()
+        .map_err(|_| AppError::ValidationError("X-TIMEZONE must be valid text".to_string()))?
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| env::var("TIMEZONE").ok())
+        .unwrap_or_else(|| "UTC".to_string());
+
+    timezone.parse().map_err(|_| {
+        AppError::ValidationError(format!(
+            "invalid timezone {timezone}; use an IANA name such as Asia/Makassar"
+        ))
+    })
 }
 
 impl LoggingTypeFilter {
@@ -155,9 +185,11 @@ impl LoggingSortPayload {
 
 pub async fn list_log_by_tenant_id_http(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(pagination): Query<PaginationQuery>,
     Json(payload): Json<PayloadLogging>,
 ) -> Result<Json<ApiResponse<Paginated<ListLoggingItem>>>, AppError> {
+    let timezone = request_timezone(&headers)?;
     let usecases = state.usecases.clone();
     let usecase = usecases.list_log_by_tenant_id_usceases.clone();
     let auth_context = payload._auth_context;
@@ -177,7 +209,7 @@ pub async fn list_log_by_tenant_id_http(
                 log_entries
                     .content
                     .into_iter()
-                    .map(ListLoggingItem::from)
+                    .map(|logging| ListLoggingItem::from_logging(logging, timezone))
                     .collect(),
                 log_entries.total_record,
                 pagination,
@@ -210,13 +242,18 @@ pub async fn get_import_logging_detail_http(
 
 #[cfg(test)]
 mod tests {
+    use axum::http::{HeaderMap, HeaderValue};
+    use chrono::NaiveDate;
+    use chrono_tz::Asia::Makassar;
+
     use crate::domain::logging::entity::LoggingFilter;
 
-    use super::{ListLoggingItem, PayloadLogging};
+    use super::{request_timezone, resolve_timestamp, ListLoggingItem, PayloadLogging};
 
     #[test]
     fn accepts_filter_and_sort_aliases_without_a_view_field() {
         let payload: PayloadLogging = serde_json::from_value(serde_json::json!({
+            "_auth_context": {},
             "filters": { "tenantId": "tenant-1" },
             "sort_by": { "createdAt": "DESC" }
         }))
@@ -229,6 +266,7 @@ mod tests {
     #[test]
     fn rejects_an_unsupported_view_field() {
         let payload = serde_json::from_value::<PayloadLogging>(serde_json::json!({
+            "_auth_context": {},
             "filter": {},
             "view": ["createdAt"],
             "sort": { "createdAt": "DESC" }
@@ -240,6 +278,7 @@ mod tests {
     #[test]
     fn accepts_only_export_or_import_logging_type_filter() {
         let payload: PayloadLogging = serde_json::from_value(serde_json::json!({
+            "_auth_context": {},
             "filter": { "loggingType": "IMPORT" }
         }))
         .unwrap();
@@ -247,6 +286,7 @@ mod tests {
 
         assert_eq!(filter.logging_type.as_deref(), Some("IMPORT"));
         assert!(serde_json::from_value::<PayloadLogging>(serde_json::json!({
+            "_auth_context": {},
             "filter": { "loggingType": "SYNC" }
         }))
         .is_err());
@@ -256,7 +296,9 @@ mod tests {
     fn list_item_serializes_only_summary_fields() {
         let item = ListLoggingItem {
             id: Some("logging-1".to_string()),
+            created_at: None,
             logging_type: "EXPORT".to_string(),
+            status: "COMPLETED".to_string(),
             email: "user@example.test".to_string(),
             total_chunk: 4,
             current_chunk: 2,
@@ -270,7 +312,9 @@ mod tests {
             serde_json::to_value(item).unwrap(),
             serde_json::json!({
                 "id": "logging-1",
+                "created_at": null,
                 "logging_type": "EXPORT",
+                "status": "COMPLETED",
                 "email": "user@example.test",
                 "total_chunk": 4,
                 "current_chunk": 2,
@@ -279,6 +323,26 @@ mod tests {
                 "completed_at": null,
                 "download_url": null
             })
+        );
+    }
+
+    #[test]
+    fn timestamps_use_x_timezone() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-TIMEZONE", HeaderValue::from_static("Asia/Makassar"));
+
+        let resolved = request_timezone(&headers).unwrap();
+        let timestamp = NaiveDate::from_ymd_opt(2026, 8, 13)
+            .unwrap()
+            .and_hms_opt(8, 0, 0)
+            .unwrap();
+
+        assert_eq!(resolved, Makassar);
+        assert_eq!(
+            resolve_timestamp(Some(timestamp), resolved)
+                .unwrap()
+                .to_rfc3339(),
+            "2026-08-13T16:00:00+08:00"
         );
     }
 }
