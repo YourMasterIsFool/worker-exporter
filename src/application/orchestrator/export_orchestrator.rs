@@ -124,6 +124,7 @@ impl Orchestrator for ExportOrchestrator {
             logging_type: LoggingType::Export.to_string(),
             completed_at: None,
             download_url: None,
+            s3_key: None,
             status: LoggingStatus::Processing.to_string(),
             error: None,
             additional_info: None,
@@ -288,10 +289,10 @@ impl Orchestrator for ExportOrchestrator {
                 .await?;
 
             let key = payload.get_ref().key.clone();
-            self.logging
-                .update_download_url(msg_id, key.clone())
-                .await?;
             let download_url = config.redirected_url.replace("{{url}}", &key);
+            self.logging
+                .update_download_url_and_s3_key(msg_id, download_url.clone(), key)
+                .await?;
             let payload = json!({
                 "exporterName": job.email.clone(),
                 "downloadUrl": download_url

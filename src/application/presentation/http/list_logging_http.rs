@@ -68,6 +68,7 @@ pub struct ListLoggingItem {
     pub total_count: i64,
     pub completed_at: Option<DateTime<Tz>>,
     pub download_url: Option<String>,
+    pub s3_key: Option<String>,
 }
 
 impl ListLoggingItem {
@@ -83,6 +84,7 @@ impl ListLoggingItem {
             total_count: logging.total_count,
             completed_at: resolve_timestamp(logging.completed_at, timezone),
             download_url: logging.download_url,
+            s3_key: logging.s3_key,
             logging_type: logging.logging_type,
             status: logging.status,
         }
@@ -309,6 +311,7 @@ mod tests {
             total_count: 40,
             completed_at: None,
             download_url: None,
+            s3_key: Some("v6/HRMS/tenant/DOCUMENT/export.xlsx".to_string()),
         };
 
         assert_eq!(
@@ -325,7 +328,8 @@ mod tests {
                 "processed_count": 20,
                 "total_count": 40,
                 "completed_at": null,
-                "download_url": null
+                "download_url": null,
+                "s3_key": "v6/HRMS/tenant/DOCUMENT/export.xlsx"
             })
         );
     }

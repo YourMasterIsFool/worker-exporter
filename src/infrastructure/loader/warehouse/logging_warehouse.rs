@@ -28,6 +28,7 @@ pub struct LoggingWarehouseModel {
     pub logging_type: String,
     pub completed_at: Option<NaiveDateTime>,
     pub download_url: Option<String>,
+    pub s3_key: Option<String>,
     pub status: String,
     pub error: Option<serde_json::Value>,
     pub additional_info: Option<serde_json::Value>,
@@ -52,6 +53,7 @@ impl From<LoggingWarehouseModel> for LoggingEntity {
             title: value.title,
             additional_info: value.additional_info,
             completed_at: value.completed_at,
+            s3_key: value.s3_key,
             cursor: value.cursor,
             current_chunk: value.current_chunk,
             download_url: value.download_url,
@@ -78,6 +80,7 @@ impl From<LoggingEntity> for LoggingWarehouseModel {
             title: value.title,
             additional_info: value.additional_info,
             completed_at: value.completed_at,
+            s3_key: value.s3_key,
             cursor: value.cursor,
             current_chunk: 0,
             download_url: value.download_url,
@@ -179,6 +182,7 @@ impl LoaderPersitence for LoggingWarehouse {
             "logging_type",
             "completed_at",
             "download_url",
+            "s3_key",
             "actor_id",
             "email",
             "tenant_id",
@@ -258,6 +262,7 @@ impl LoggingRepo for LoggingWarehouse {
             .bind(entity.logging_type.to_string())
             .bind(entity.completed_at)
             .bind(entity.download_url)
+            .bind(entity.s3_key)
             .bind(entity.actor_id)
             .bind(entity.email)
             .bind(entity.tenant_id)
@@ -350,8 +355,23 @@ impl LoggingRepo for LoggingWarehouse {
         Ok(())
     }
 
-    async fn update_download_url(&self, stream_id: &str, url: String) -> anyhow::Result<()> {
-        self.update_commit(stream_id, "download_url", url).await?;
+    async fn update_download_url_and_s3_key(
+        &self,
+        stream_id: &str,
+        download_url: String,
+        s3_key: String,
+    ) -> anyhow::Result<()> {
+        let query = format!(
+            "UPDATE {} SET download_url = $1, s3_key = $2 WHERE {}",
+            self.table(),
+            Self::lookup_predicate(3)
+        );
+        sqlx::query(&query)
+            .bind(download_url)
+            .bind(s3_key)
+            .bind(stream_id)
+            .execute(&self.client.pool)
+            .await?;
         Ok(())
     }
 

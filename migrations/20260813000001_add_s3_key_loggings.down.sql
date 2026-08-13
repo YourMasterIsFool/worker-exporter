@@ -1,0 +1,1 @@
+ALTER TABLE loggings DROP COLUMN s3_key;

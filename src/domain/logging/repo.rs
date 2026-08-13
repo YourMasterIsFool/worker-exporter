@@ -27,7 +27,12 @@ pub trait LoggingRepo: Send + Sync {
     async fn mark_as_completed(&self, id: &str) -> anyhow::Result<()>;
     async fn update_status(&self, id: &str, status: LoggingStatus) -> anyhow::Result<()>;
     async fn update_error(&self, id: &str, error: Option<String>) -> anyhow::Result<()>;
-    async fn update_download_url(&self, id: &str, url: String) -> anyhow::Result<()>;
+    async fn update_download_url_and_s3_key(
+        &self,
+        id: &str,
+        download_url: String,
+        s3_key: String,
+    ) -> anyhow::Result<()>;
     async fn list_logs(
         &self,
         request: &ListLoggingRequest,

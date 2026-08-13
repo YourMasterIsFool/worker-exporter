@@ -74,6 +74,7 @@ pub struct LoggingEntity {
     pub logging_type: String,
     pub completed_at: Option<NaiveDateTime>,
     pub download_url: Option<String>,
+    pub s3_key: Option<String>,
     pub status: String,
     pub error: Option<serde_json::Value>,
     pub additional_info: Option<serde_json::Value>,

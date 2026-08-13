@@ -545,6 +545,7 @@ impl Orchestrator for ImportOrchestrator {
                 logging_type: LoggingType::Import.to_string(),
                 completed_at: None,
                 download_url: None,
+                s3_key: None,
                 status: LoggingStatus::Processing.to_string(),
                 error: None,
                 additional_info: None,

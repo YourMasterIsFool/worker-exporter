@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, QueryBuilder};
 use tracing::{debug, instrument};
@@ -28,9 +28,9 @@ use crate::{
 pub struct AtsCandidateIngestionModel {
     pub id: Uuid,
 
-    pub created_at: NaiveDateTime,
-    pub updated_at: Option<NaiveDateTime>,
-    pub deleted_at: Option<NaiveDateTime>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub deleted_at: Option<DateTime<Utc>>,
 
     pub user_id: Option<Uuid>,
     pub name: String,
@@ -42,7 +42,7 @@ pub struct AtsCandidateIngestionModel {
     pub identity_number_encrypt: Option<String>,
     pub identity_number_hashing: Option<String>,
     pub is_identity_number_verified: Option<bool>,
-    pub identity_number_verified_at: Option<NaiveDateTime>,
+    pub identity_number_verified_at: Option<DateTime<Utc>>,
     pub nationality: Option<String>, // Bisa diubah ke Enum jika perlu
     pub passport_number: Option<String>,
     pub passport_expired_at: Option<NaiveDate>,
