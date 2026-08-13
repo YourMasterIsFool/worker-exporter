@@ -22,6 +22,7 @@ use crate::{
 #[derive(sqlx::FromRow, Debug)]
 pub struct LoggingWarehouseModel {
     pub id: Option<String>,
+    pub created_at: Option<NaiveDateTime>,
     pub actor_id: String,
     pub stream_id: String,
     pub logging_type: String,
@@ -44,6 +45,7 @@ pub struct LoggingWarehouseModel {
 impl From<LoggingWarehouseModel> for LoggingEntity {
     fn from(value: LoggingWarehouseModel) -> Self {
         Self {
+            created_at: value.created_at,
             stream_id: value.stream_id,
             email: value.email,
             tenant_id: value.tenant_id,
@@ -68,6 +70,7 @@ impl From<LoggingWarehouseModel> for LoggingEntity {
 impl From<LoggingEntity> for LoggingWarehouseModel {
     fn from(value: LoggingEntity) -> Self {
         Self {
+            created_at: value.created_at,
             stream_id: value.stream_id,
             actor_id: value.actor_id,
             email: value.email,

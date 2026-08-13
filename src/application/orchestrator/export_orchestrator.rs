@@ -50,6 +50,7 @@ impl Orchestrator for ExportOrchestrator {
 
         let logging_entity = LoggingEntity {
             id: None,
+            created_at: None,
             tenant_id: job.tenant_id.clone(),
             email: job.email.clone(),
             actor_id: job.actor_id.clone(),

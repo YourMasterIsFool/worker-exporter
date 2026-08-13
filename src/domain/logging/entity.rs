@@ -66,6 +66,7 @@ impl SortDirection {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LoggingEntity {
     pub id: Option<String>,
+    pub created_at: Option<NaiveDateTime>,
     pub actor_id: String,
     pub email: String,
     pub tenant_id: String,

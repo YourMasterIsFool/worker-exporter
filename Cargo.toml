@@ -71,6 +71,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.10.0", features = ["v7", "serde"] }
 
 chrono = { version = "0.4.35", default-features = false, features = ["serde", "clock"] }
+chrono-tz = "0.10"
 
 dhat = { version = "0.3", optional = true }
 
