@@ -30,8 +30,7 @@ pub struct IngestionEmployee {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub full_name: Option<String>,
-    pub email: Option<String>
-    // Kolom lain di-comment sesuai aslinya
+    pub email: Option<String>, // Kolom lain di-comment sesuai aslinya
 }
 
 pub struct IngestionEmployeeSource {

@@ -22,7 +22,7 @@ impl LoaderRunner {
         let mut total_affected_rows = 0;
 
         loop {
-            let result = ingestion.run(cursor, 10, "tenants").await?;
+            let result = ingestion.run(cursor, 10, "tenants", None).await?;
             if result.0.is_none() {
                 break;
             }

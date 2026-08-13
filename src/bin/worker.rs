@@ -54,6 +54,23 @@ async fn main() -> Result<()> {
         }
     }
 
+    let ingestion_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+        Arc::new(RedisStreamConsumer {
+            client: manager.clone(),
+            stream_key: "stream:ingestion".to_string(),
+            group: "ingestion-group".to_string(),
+            consumer_name: "ingestion-worker-1".to_string(),
+        });
+    let ingestion_handler = IngestionHandler {
+        app_state: state.clone(),
+        consumer: ingestion_consumer,
+    };
+    tokio::spawn(async move {
+        if let Err(err) = ingestion_handler.handler().await {
+            tracing::error!(?err, "ingestion handler crashed");
+        }
+    });
+
     // 3. export — 3 worker
     for i in 1..=3 {
         let export_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =

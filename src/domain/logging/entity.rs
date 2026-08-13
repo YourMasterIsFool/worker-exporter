@@ -76,6 +76,7 @@ pub struct LoggingEntity {
     pub error: Option<serde_json::Value>,
     pub additional_info: Option<serde_json::Value>,
     pub processed_count: i32,
+    pub total_count: i64,
     pub current_chunk: i32,
     pub total_chunk: i32,
     pub cursor: Option<String>,

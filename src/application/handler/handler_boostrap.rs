@@ -59,8 +59,14 @@ pub async fn consumer_handler(
             // dan akan memunculkan log lalu consumer di ack
 
             if let Some(job) = job {
+                let resolved_orchestrator =
+                    if orchestrator_type == "EXPORT" && job.dynamic_export_config.is_some() {
+                        "DYNAMIC_EXPORT"
+                    } else {
+                        orchestrator_type
+                    };
                 match build_orchestrator(
-                    orchestrator_type,
+                    resolved_orchestrator,
                     &job,
                     orchestrator_registry.clone(),
                     &msg.id,

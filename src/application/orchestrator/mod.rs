@@ -1,3 +1,4 @@
+pub mod dynamic_export_orchestrator;
 pub mod export_orchestrator;
 pub mod import_orchestrator;
 pub mod ingestion_orchestrator;

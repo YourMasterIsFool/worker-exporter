@@ -15,6 +15,7 @@ pub trait LoggingRepo: Send + Sync {
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<LoggingEntity>>;
     async fn store(&self, entity: LoggingEntity) -> anyhow::Result<String>;
     async fn update_current_chunk(&self, id: &str, current_chunk: i64) -> anyhow::Result<()>;
+    async fn update_total_chunk(&self, id: &str, total_chunk: i64) -> anyhow::Result<()>;
     async fn update_processed_count(&self, id: &str, processed_count: i64) -> anyhow::Result<()>;
     async fn update_cursor(&self, id: &str, cursor: Option<String>) -> anyhow::Result<()>;
     async fn update_cursor_and_processed_count(

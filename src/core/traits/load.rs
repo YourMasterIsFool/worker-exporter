@@ -5,6 +5,7 @@ use crate::core::types::{
     SyncPayloadDataset, WhereField,
 };
 use anyhow::Result;
+use chrono::NaiveDateTime;
 use sqlx::{Postgres, Transaction};
 
 pub enum LoadEnum {
@@ -24,6 +25,10 @@ impl LoadEnum {
 #[async_trait::async_trait]
 pub trait IncrementalLoadPersitence: Send + Sync {
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64>;
+
+    async fn fetch_max_source_updated_at(&self) -> Result<Option<NaiveDateTime>> {
+        Ok(None)
+    }
 }
 
 #[async_trait::async_trait]
@@ -47,6 +52,10 @@ pub trait LoaderPersitence: Send + Sync {
 impl<T: IncrementalLoadPersitence + ?Sized + Send + Sync> IncrementalLoadPersitence for Arc<T> {
     async fn load(&self, rows: &[serde_json::Value]) -> Result<i64> {
         (**self).load(rows).await
+    }
+
+    async fn fetch_max_source_updated_at(&self) -> Result<Option<NaiveDateTime>> {
+        (**self).fetch_max_source_updated_at().await
     }
 }
 

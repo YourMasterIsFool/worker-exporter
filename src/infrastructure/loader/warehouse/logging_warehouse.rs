@@ -31,6 +31,7 @@ pub struct LoggingWarehouseModel {
     pub error: Option<serde_json::Value>,
     pub additional_info: Option<serde_json::Value>,
     pub processed_count: i32,
+    pub total_count: i64,
     pub current_chunk: i32,
     pub tenant_id: String,
     pub email: String,
@@ -55,6 +56,7 @@ impl From<LoggingWarehouseModel> for LoggingEntity {
             logging_type: value.logging_type,
             actor_id: value.actor_id,
             processed_count: value.processed_count,
+            total_count: value.total_count,
             status: value.status,
             id: value.id,
             total_chunk: value.total_chunk,
@@ -78,6 +80,7 @@ impl From<LoggingEntity> for LoggingWarehouseModel {
             error: value.error,
             logging_type: LoggingStatus::Pending.to_string(),
             processed_count: value.processed_count,
+            total_count: value.total_count,
             status: value.logging_type,
             id: None,
             total_chunk: value.total_chunk,
@@ -180,7 +183,9 @@ impl LoaderPersitence for LoggingWarehouse {
             "error",
             "additional_info",
             "processed_count",
+            "total_count",
             "current_chunk",
+            "total_chunk",
             "cursor",
             "stream_id",
             "config",
@@ -256,7 +261,9 @@ impl LoggingRepo for LoggingWarehouse {
             .bind(entity.error)
             .bind(entity.additional_info)
             .bind(entity.processed_count)
+            .bind(entity.total_count)
             .bind(entity.current_chunk)
+            .bind(entity.total_chunk)
             .bind(entity.cursor)
             .bind(entity.stream_id)
             .bind(entity.config)
@@ -276,6 +283,11 @@ impl LoggingRepo for LoggingWarehouse {
         self.update_commit(stream_id, "current_chunk", current_chunk)
             .await?;
         Ok(())
+    }
+    #[instrument(skip(self), fields(stream_id = %stream_id, total_chunk = %total_chunk))]
+    async fn update_total_chunk(&self, stream_id: &str, total_chunk: i64) -> anyhow::Result<()> {
+        self.update_commit(stream_id, "total_chunk", total_chunk)
+            .await
     }
     #[instrument(skip(self), fields(stream_id = %stream_id, processed_count = %processed_count))]
     async fn update_processed_count(

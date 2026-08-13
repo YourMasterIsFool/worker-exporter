@@ -100,6 +100,52 @@ impl DataFetcherJson for MasterGeoSource {
 }
 #[async_trait::async_trait]
 impl SourceIncrementalExtract for MasterGeoSource {
+    async fn count_updated_after(
+        &self,
+        updated_after: Option<NaiveDateTime>,
+    ) -> anyhow::Result<i64> {
+        let sql = if updated_after.is_some() {
+            "SELECT COUNT(*) FROM public.geo_nodes WHERE updated_at > $1"
+        } else {
+            "SELECT COUNT(*) FROM public.geo_nodes"
+        };
+        let mut query = sqlx::query_scalar(sql);
+        if let Some(updated_after) = updated_after {
+            query = query.bind(updated_after);
+        }
+        Ok(query.fetch_one(&self.pool.pool).await?)
+    }
+
+    async fn extract_updated_after(
+        &self,
+        updated_after: Option<NaiveDateTime>,
+        limit: i64,
+    ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
+        let sql_query = format!(
+            "SELECT {} FROM {}",
+            self.columns().join(","),
+            self.table().table_name()
+        );
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
+
+        if let Some(updated_after) = updated_after {
+            qb.push(" WHERE updated_at > ").push_bind(updated_after);
+        }
+        qb.push(" ORDER BY updated_at, id LIMIT ").push_bind(limit);
+
+        let result = qb
+            .build_query_as::<MasterGeoModel>()
+            .fetch_all(&self.pool.pool)
+            .await?;
+        let next_cursor = result.last().map(|row| row.id);
+        let rows = result
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((rows, next_cursor))
+    }
+
     async fn extract(
         &self,
         cursor: Option<Uuid>,
@@ -117,7 +163,7 @@ impl SourceIncrementalExtract for MasterGeoSource {
         if let Some(c) = cursor {
             qb.push(" WHERE id > ").push_bind(c);
         }
-        qb.push(" LIMIT ").push_bind(limit);
+        qb.push(" ORDER BY id LIMIT ").push_bind(limit);
         let result = qb
             .build_query_as::<MasterGeoModel>()
             .fetch_all(&self.pool.pool)

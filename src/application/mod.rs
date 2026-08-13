@@ -21,6 +21,7 @@ pub mod pipelines;
 pub mod runner;
 pub mod sync;
 pub mod sync_aggregator_registry;
+pub mod transform_registry;
 
 pub mod fetch_source_regitry;
 pub mod validations;

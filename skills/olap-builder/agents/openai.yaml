@@ -1,0 +1,4 @@
+interface:
+  display_name: "OLAP Builder"
+  short_description: "Build scoped OLAP, import, and export flows"
+  default_prompt: "Use $olap-builder to implement the configured data-flow change."

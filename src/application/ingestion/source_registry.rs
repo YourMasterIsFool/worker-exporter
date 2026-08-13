@@ -9,6 +9,7 @@ use crate::{
         db::{
             ats_client::AtsClient, master_client::MasterClient, warehouse_client::WarehouseClient,
         },
+        ingestion::master::{geo::MasterGeoSource, master_item::MasterMasterItemsSource},
         source::oltp::{
             ats::{
                 applicant::applicant_bucket::AtsApplicantBucketSource,
@@ -44,7 +45,7 @@ pub fn build_source_registry(
     organization_db: Arc<OrganizatinPostgresClient>,
     ats_db: Arc<AtsClient>,
     warehouse_db: Arc<WarehouseClient>,
-    _master_db: Arc<MasterClient>,
+    master_db: Arc<MasterClient>,
 ) -> SourceRegistry {
     let mut registry = SourceRegistry::new();
     registry.register(
@@ -129,12 +130,13 @@ pub fn build_source_registry(
             pool: warehouse_db.clone(),
         }),
     );
-    // registry.register(
-    //     "oltp_master_master_items",
-    //     MasterMasterItemsSource {
-    //         pool: master_db.clone(),
-    //     },
-    // );
+    registry.register(
+        "master_items",
+        Arc::new(MasterMasterItemsSource {
+            pool: master_db.clone(),
+        }),
+    );
+    registry.register("master_geo", Arc::new(MasterGeoSource { pool: master_db }));
 
     registry
 }

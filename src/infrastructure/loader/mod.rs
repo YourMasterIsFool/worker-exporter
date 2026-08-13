@@ -1,3 +1,3 @@
-mod olap;
+pub mod olap;
 pub mod oltp;
 pub mod warehouse;

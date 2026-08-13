@@ -131,6 +131,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         import_logging.clone(),
     ));
     let dataset_registry = Arc::new(build_dataset_registry(
+        database_manager.clone(),
         warehouse_client.clone(),
         ats_client.clone(),
         data_fetcher_registry.clone(),
