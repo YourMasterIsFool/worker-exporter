@@ -244,6 +244,7 @@ pub struct ImporterConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OrchestratorJob {
     pub(crate) tenant_id: String,
+    pub(crate) title: Option<String>,
     pub(crate) email: String,
     pub(crate) actor_id: String,
     pub(crate) permissions_key: Option<Vec<String>>,

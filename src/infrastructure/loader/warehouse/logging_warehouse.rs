@@ -35,6 +35,7 @@ pub struct LoggingWarehouseModel {
     pub total_count: i64,
     pub current_chunk: i32,
     pub tenant_id: String,
+    pub title: Option<String>,
     pub email: String,
     pub total_chunk: i32,
     pub cursor: Option<String>,
@@ -48,6 +49,7 @@ impl From<LoggingWarehouseModel> for LoggingEntity {
             stream_id: value.stream_id,
             email: value.email,
             tenant_id: value.tenant_id,
+            title: value.title,
             additional_info: value.additional_info,
             completed_at: value.completed_at,
             cursor: value.cursor,
@@ -73,6 +75,7 @@ impl From<LoggingEntity> for LoggingWarehouseModel {
             actor_id: value.actor_id,
             email: value.email,
             tenant_id: value.tenant_id,
+            title: value.title,
             additional_info: value.additional_info,
             completed_at: value.completed_at,
             cursor: value.cursor,
@@ -179,6 +182,7 @@ impl LoaderPersitence for LoggingWarehouse {
             "actor_id",
             "email",
             "tenant_id",
+            "title",
             "status",
             "error",
             "additional_info",
@@ -257,6 +261,7 @@ impl LoggingRepo for LoggingWarehouse {
             .bind(entity.actor_id)
             .bind(entity.email)
             .bind(entity.tenant_id)
+            .bind(entity.title)
             .bind(entity.status)
             .bind(entity.error)
             .bind(entity.additional_info)

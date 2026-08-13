@@ -118,6 +118,7 @@ impl Orchestrator for ExportOrchestrator {
             id: None,
             created_at: None,
             tenant_id: job.tenant_id.clone(),
+            title: job.title.clone(),
             email: job.email.clone(),
             actor_id: job.actor_id.clone(),
             logging_type: LoggingType::Export.to_string(),

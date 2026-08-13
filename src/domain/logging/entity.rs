@@ -70,6 +70,7 @@ pub struct LoggingEntity {
     pub actor_id: String,
     pub email: String,
     pub tenant_id: String,
+    pub title: Option<String>,
     pub logging_type: String,
     pub completed_at: Option<NaiveDateTime>,
     pub download_url: Option<String>,
