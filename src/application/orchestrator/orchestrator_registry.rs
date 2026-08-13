@@ -10,8 +10,9 @@ use crate::{
         import::import_registry::ImportLoaderRegistry,
         loader_registry::LoaderRegistry,
         orchestrator::{
+            dynamic_export_orchestrator::DynamicExportOrchestrator,
             export_orchestrator::ExportOrchestrator, import_orchestrator::ImportOrchestrator,
-            sync_orchestrator::SyncOrchestrator,
+            ingestion_orchestrator::IngestionOrchestrator, sync_orchestrator::SyncOrchestrator,
         },
         pipelines::{
             pipeline_import_registry::PipelineImportRegistry, pipeline_registry::PipelineRegistry,
@@ -63,21 +64,23 @@ pub fn build_orchestrator_registry(
             }),
         )
         .ok();
+    let export_orchestrator = Arc::new(ExportOrchestrator {
+        pipeline: pipeline.clone(),
+        writter,
+        load: loader.clone(),
+        logging: logging.clone(),
+        dataset,
+        grpc_service,
+        publisher,
+    });
+    registry
+        .register("EXPORT", export_orchestrator.clone())
+        .ok();
     registry
         .register(
-            "EXPORT",
-            Arc::new(ExportOrchestrator {
-                pipeline,
-                writter,
-                load: loader,
-                logging: logging.clone(),
-                dataset,
-                grpc_service,
-                publisher,
-                local_cache: Cache::builder()
-                    .time_to_live(Duration::from_mins(30))
-                    .max_capacity(5000)
-                    .build(),
+            "DYNAMIC_EXPORT",
+            Arc::new(DynamicExportOrchestrator {
+                export: export_orchestrator,
             }),
         )
         .ok();
@@ -88,6 +91,12 @@ pub fn build_orchestrator_registry(
                 sync_aggregator,
                 logging,
             }),
+        )
+        .ok();
+    registry
+        .register(
+            "ingestion",
+            Arc::new(IngestionOrchestrator { pipeline, loader }),
         )
         .ok();
     registry

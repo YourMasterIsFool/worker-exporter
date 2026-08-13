@@ -83,7 +83,6 @@ pub struct LoggingEntity {
     pub cursor: Option<String>,
     pub stream_id: String,
     pub config: Option<serde_json::Value>,
-    pub created_at: Option<chrono::NaiveDateTime>,
 }
 
 pub enum LoggingStatus {

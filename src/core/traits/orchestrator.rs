@@ -5,7 +5,8 @@ use crate::core::types::ValidationConfig;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterColumn {
     pub name: String,
-    pub column: Option<String>,
+    #[serde(default)]
+    pub column: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fetcher: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -16,6 +17,14 @@ pub struct ExporterColumn {
     pub fetcher_key: Option<String>,
     #[serde(default)]
     pub is_cache: bool,
+    #[serde(default)]
+    pub relation: Option<String>,
+    #[serde(default)]
+    pub custom_key: Option<String>,
+    #[serde(default)]
+    pub transform: Option<String>,
+    #[serde(default, rename = "default")]
+    pub default_value: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterConfig {
@@ -26,12 +35,103 @@ pub struct ExporterConfig {
     pub structure_template_code: String,
     pub redirected_url: String,
     pub chunk: i64,
-    pub send_email: Option<bool>
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DynamicExportCursor {
+    pub column: String,
+    #[serde(default = "default_cursor_direction")]
+    pub direction: String,
+}
+
+fn default_cursor_direction() -> String {
+    "asc".into()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DynamicExportSource {
+    pub database: String,
+    pub schema: String,
+    pub table: String,
+    #[serde(default)]
+    pub cursor: Option<DynamicExportCursor>,
+    #[serde(default)]
+    pub tenant_field: Option<String>,
+    #[serde(default)]
+    pub tenant_operator: Option<String>,
+    #[serde(default)]
+    pub where_fields: Vec<crate::core::types::WhereField>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DynamicExportRelation {
+    pub name: String,
+    #[serde(default)]
+    pub depends_on: Option<String>,
+    pub source: DynamicExportSource,
+    pub local_key: String,
+    pub foreign_key: String,
+    pub cardinality: String,
+    #[serde(default)]
+    pub is_custom: bool,
+    #[serde(default)]
+    pub is_cache: bool,
+    #[serde(default)]
+    pub field_key_column: Option<String>,
+    #[serde(default)]
+    pub field_type_column: Option<String>,
+    #[serde(default)]
+    pub value_columns: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub order_by: Option<DynamicExportCursor>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DynamicExportConfig {
+    pub dataset: String,
+    pub format: String,
+    pub fields: Vec<ExporterColumn>,
+    pub source: DynamicExportSource,
+    #[serde(default)]
+    pub relations: Vec<DynamicExportRelation>,
+    pub template_code: String,
+    pub structure_template_code: String,
+    pub redirected_url: String,
+    pub chunk: i64,
+}
+
+impl DynamicExportConfig {
+    pub fn export_config(&self) -> ExporterConfig {
+        ExporterConfig {
+            fields: self.fields.clone(),
+            dataset: self.dataset.clone(),
+            format: self.format.clone(),
+            template_code: self.template_code.clone(),
+            structure_template_code: self.structure_template_code.clone(),
+            redirected_url: self.redirected_url.clone(),
+            chunk: self.chunk,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IngestionConfig {
-    pub dataset: String,
+    #[serde(default)]
+    pub dataset: Option<String>,
+    pub source: String,
+    pub loader: String,
+    #[serde(default = "default_ingestion_pipeline")]
+    pub pipeline: String,
+    #[serde(default = "default_ingestion_chunk")]
+    pub chunk: i64,
+}
+
+fn default_ingestion_pipeline() -> String {
+    "ingestion".to_string()
+}
+
+fn default_ingestion_chunk() -> i64 {
+    500
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -76,10 +176,6 @@ pub struct ImporterColumn {
     pub template: Option<serde_json::Value>,
     pub type_data: Option<TypeDataEnum>,
     pub is_custom: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub select: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub is_child: Option<bool>,
     pub fetcher_field_filter: Option<String>,
     pub fetcher_field_key: Option<String>,
     pub fetcher_key: Option<String>,
@@ -154,6 +250,7 @@ pub struct OrchestratorJob {
 
     pub(crate) orchestrator_name: String,
     pub(crate) export_config: Option<ExporterConfig>,
+    pub(crate) dynamic_export_config: Option<DynamicExportConfig>,
     pub(crate) ingestion_config: Option<IngestionConfig>,
     pub(crate) import_config: Option<ImporterConfig>,
     pub(crate) sync_config: Option<SyncConfig>,

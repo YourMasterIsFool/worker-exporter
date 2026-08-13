@@ -556,10 +556,6 @@ impl Orchestrator for ImportOrchestrator {
                 // konfigurasi asli (termasuk fields/template/sync_config) untuk
                 // memetakan data temporary kembali ke header Excel.
                 config: Some(serde_json::to_value(job)?),
-
-                //creatd_at
-
-                created_at: None
             };
 
             let logging_id = self.logging.store(logging_entity).await?;

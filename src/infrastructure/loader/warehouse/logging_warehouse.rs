@@ -39,7 +39,6 @@ pub struct LoggingWarehouseModel {
     pub total_chunk: i32,
     pub cursor: Option<String>,
     pub config: Option<serde_json::Value>,
-    pub created_at: Option<chrono::NaiveDateTime>,
 }
 
 impl From<LoggingWarehouseModel> for LoggingEntity {
@@ -63,7 +62,6 @@ impl From<LoggingWarehouseModel> for LoggingEntity {
             id: value.id,
             total_chunk: value.total_chunk,
             config: value.config,
-            created_at: value.created_at
         }
     }
 }
@@ -88,7 +86,6 @@ impl From<LoggingEntity> for LoggingWarehouseModel {
             id: None,
             total_chunk: value.total_chunk,
             config: value.config,
-            created_at: None
         }
     }
 }

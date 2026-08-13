@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Ok;
-use moka::future::Cache;
+use serde::Serialize;
 use serde_json::json;
 use tracing::instrument;
 
@@ -16,19 +16,31 @@ use crate::{
         writter::WritterRegistry,
     },
     core::{
+        config::config,
         traits::{
+            dataset_trait::Dataset,
             orchestrator::{Orchestrator, OrchestratorJob},
             publisher::Publisher,
         },
-        types::{CastingEnum, WhereField},
+        types::WhereField,
     },
     domain::logging::{
         entity::{LoggingEntity, LoggingStatus, LoggingType},
         repo::LoggingRepo,
     },
-    utils::sending_email::{sending_email, EmailPublisher},
 };
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")] //
+struct EmailPublisher {
+    email: String,
+    subject: String,
+    template_id: Option<String>,
+    template_code: Option<String>,
+    template_structure_code: Option<String>,
+    provider: String,
+    payload: serde_json::Value,
+}
 pub struct ExportOrchestrator {
     pub pipeline: Arc<PipelineRegistry>,
     pub writter: Arc<WritterRegistry>,
@@ -37,16 +49,70 @@ pub struct ExportOrchestrator {
     pub dataset: Arc<DatasetRegistry>,
     pub grpc_service: Arc<GrpcService>,
     pub publisher: Arc<dyn Publisher>,
-    pub local_cache: Cache<String, serde_json::Value>,
+}
+
+impl ExportOrchestrator {
+    pub async fn run_dynamic(&self, job: &OrchestratorJob, msg_id: &str) -> anyhow::Result<()> {
+        <Self as Orchestrator>::run(self, job, msg_id).await
+    }
+
+    fn dynamic_filters(
+        job: &OrchestratorJob,
+        config: &crate::core::traits::orchestrator::DynamicExportConfig,
+    ) -> Vec<WhereField> {
+        let tenant_field = config.source.tenant_field.as_deref().unwrap_or("tenant_id");
+        let tenant_operator = config.source.tenant_operator.as_deref().unwrap_or("=");
+        let mut filters = vec![WhereField {
+            field: tenant_field.into(),
+            operator: tenant_operator.to_string(),
+            value: (tenant_operator == "=").then_some(job.tenant_id.clone()),
+            values: (tenant_operator != "=").then_some(vec![job.tenant_id.clone()]),
+            casting: None,
+        }];
+        if let Some(extra_filters) = &job.filters {
+            filters.extend(extra_filters.clone());
+        }
+        filters
+    }
 }
 
 #[async_trait::async_trait]
 impl Orchestrator for ExportOrchestrator {
     #[instrument(skip(self, job), fields(msg_id = %msg_id, tenant_id = %job.tenant_id, types="export"))]
     async fn run(&self, job: &OrchestratorJob, msg_id: &str) -> anyhow::Result<()> {
-        // just example
-        // let ingestion_pipeline = self.pipeline.get("ingestion")?;
-        // let loader = self.load.get("tenants")?;
+        let dynamic_export_config = job.dynamic_export_config.as_ref();
+        let dynamic_legacy_config;
+        let config = match (&job.export_config, dynamic_export_config) {
+            (Some(config), None) => config,
+            (None, Some(config)) => {
+                dynamic_legacy_config = config.export_config();
+                &dynamic_legacy_config
+            }
+            (Some(_), Some(_)) => {
+                anyhow::bail!("use export_config or dynamic_export_config, not both")
+            }
+            (None, None) => anyhow::bail!("export configuration is required"),
+        };
+        let dynamic_filters =
+            dynamic_export_config.map(|config| Self::dynamic_filters(job, config));
+        let (total_count, total_chunk) = match dynamic_export_config {
+            Some(config) => {
+                if config.chunk <= 0 {
+                    anyhow::bail!("dynamic export chunk must be greater than zero");
+                }
+                let total_count = self
+                    .dataset
+                    .get(&config.dataset)?
+                    .count_with_dynamic_export_config(
+                        &crate::core::traits::load::LoadEnum::Select(dynamic_filters.clone(), None),
+                        config,
+                    )
+                    .await?;
+                let total_chunk = total_count.saturating_add(config.chunk - 1) / config.chunk;
+                (total_count, total_chunk)
+            }
+            None => (0, 0),
+        };
 
         let logging_entity = LoggingEntity {
             id: None,
@@ -61,13 +127,17 @@ impl Orchestrator for ExportOrchestrator {
             error: None,
             additional_info: None,
             processed_count: 0,
+            total_count,
             current_chunk: 0,
-            total_chunk: 0,
+            total_chunk: total_chunk
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("total chunk exceeds i32"))?,
             cursor: None,
-            stream_id: msg_id.to_string(),
+            stream_id: msg_id.to_string().clone(),
             config: Some(serde_json::to_value(job.clone())?),
-            created_at: None,
         };
+
+        // create logging first
         self.logging.store(logging_entity).await?;
 
         // loader first data
@@ -94,21 +164,15 @@ impl Orchestrator for ExportOrchestrator {
         // dari Factory bisa dimutasi secara lokal di dalam fungsi ini.
         //
 
-        if let Some(export_config) = &job.export_config {
-            let export_columns = export_config.fields.clone();
+        {
+            let export_columns = config.fields.clone();
 
-            let mut format = String::from("csv");
-            let mut format_file = String::from("csv");
-
-            if let Some(format_str) = &job.export_config.as_ref().map(|c| c.format.as_str()) {
-                format = String::from(*format_str);
-            }
-
-            if format == "csv" {
-                format_file = String::from("csv");
-            } else if format == "excel" {
-                format_file = String::from("xlsx");
-            }
+            let format = config.format.as_str();
+            let format_file = match format {
+                "csv" => "csv",
+                "excel" => "xlsx",
+                _ => anyhow::bail!("format must match a writer registry key: csv or excel"),
+            };
 
             let mut writter = self.writter.get(&format)?;
 
@@ -139,31 +203,29 @@ impl Orchestrator for ExportOrchestrator {
             })
             .await??;
 
-            let dataset = self.dataset.get(&export_config.dataset)?;
-            let tenant_id = job
-                .import_config
-                .as_ref()
-                .map(|config| config.tenant_id.clone())
-                .filter(|tenant_id| !tenant_id.is_empty())
-                .unwrap_or_else(|| job.tenant_id.clone());
-
-            let mut job_filter = vec![WhereField {
-                field: "tenant_id".into(),
-                operator: "=".to_string(),
-                value: Some(tenant_id),
-                values: None,
-                casting: Some(CastingEnum::Uuid),
-            }];
-
-            if let Some(filters) = &job.filters {
-                job_filter.extend(filters.clone());
-            }
-            let mut cursor: Option<String> = Some(
-                dataset
-                    .as_ref()
-                    .get_min_cursor(Some(job_filter.clone()))
-                    .await?,
-            );
+            let dataset = self.dataset.get(&config.dataset)?;
+            let job_filter = dynamic_filters.clone().unwrap_or_else(|| {
+                let mut filters = vec![WhereField {
+                    field: "tenant_id".into(),
+                    operator: "=".into(),
+                    value: Some(job.tenant_id.clone()),
+                    values: None,
+                    casting: None,
+                }];
+                if let Some(extra_filters) = &job.filters {
+                    filters.extend(extra_filters.clone());
+                }
+                filters
+            });
+            let mut cursor: Option<String> = match dynamic_export_config {
+                Some(_) => None,
+                None => Some(
+                    dataset
+                        .as_ref()
+                        .get_min_cursor(Some(job_filter.clone()))
+                        .await?,
+                ),
+            };
 
             let expor_runner = ExportRunner::run(
                 dataset.as_ref(),
@@ -173,8 +235,8 @@ impl Orchestrator for ExportOrchestrator {
                 msg_id,
                 Some(job_filter),
                 &mut cursor,
-                export_config.chunk,
-                &self.local_cache,
+                config.chunk,
+                dynamic_export_config,
             )
             .await;
 
@@ -197,33 +259,38 @@ impl Orchestrator for ExportOrchestrator {
                 .await
                 .map_err(|e| anyhow::anyhow!("Gagal membaca file hasil export: {}", e))?;
 
-            let upload = self
+            // Panggil client gRPC Anda secara mutable menggunakan Arc::clone jika dibutuhkan,
+            // namun karena upload_file butuh `&mut self`, pastikan s3_grpc di struktur struct
+            // dikelola secara mandiri atau gunakan fungsi internal jika trait membolehkan.
+            // Di sini kita berasumsi pembungkus s3_grpc Anda mengizinkan pemanggilan langsung.
+            let payload = self
                 .grpc_service
                 .s3_facilitator_grpc
                 .upload_file(UploadFileRequest {
                     usage: "DOCUMENT".into(),
                     bucket_type: "PUBLIC".into(),
                     app_type: "HRMS".into(),
-                    tenant_id: job.tenant_id.clone(),
+                    tenant_id: job.tenant_id.clone(), // Tambahkan .clone() jika tenant_id adalah String agar tidak ter-move
                     data: buffer_data,
+                    // AMAN: `file_path` di bawah ini sekarang valid untuk digunakan berkali-kali
                     file_name: file_path
                         .file_name()
-                        .and_then(|name| name.to_str())
+                        .and_then(|n| n.to_str())
                         .unwrap_or("")
                         .into(),
                     file_type: file_path
                         .extension()
-                        .and_then(|extension| extension.to_str())
+                        .and_then(|e| e.to_str())
                         .unwrap_or("")
                         .into(),
                 })
                 .await?;
-            let key = upload.get_ref().key.clone();
 
-           
-            let download_url = export_config.redirected_url.replace("{{url}}", &key);
-                self.logging
-                .update_download_url(msg_id, download_url.clone()).await?;
+            let key = payload.get_ref().key.clone();
+            self.logging
+                .update_download_url(msg_id, key.clone())
+                .await?;
+            let download_url = config.redirected_url.replace("{{url}}", &key);
             let payload = json!({
                 "exporterName": job.email.clone(),
                 "downloadUrl": download_url
@@ -233,16 +300,21 @@ impl Orchestrator for ExportOrchestrator {
                 subject: "Send Email".into(),
                 template_id: None,
                 // template_code: Some("LSI_EMAIL_EXPORT".into()),
-                template_code: Some(export_config.template_code.clone()),
-                template_structure_code: Some(export_config.structure_template_code.clone()),
+                template_code: Some(config.template_code.clone()),
+                template_structure_code: Some(config.structure_template_code.clone()),
                 // template_structure_code: Some("LSI_EXPORT_STRUCTURE".into()),
                 provider: EmailProvider::SendGrid.to_string(),
                 payload,
             };
 
-            if let Some(send_email) = export_config.send_email {
-                if send_email {
-                    sending_email(self.publisher.clone(), "stream:email", &email).await?;
+            let payload_email = serde_json::to_value(email)?;
+
+            match self.publisher.publish("stream:email", payload_email).await {
+                Result::Ok(_) => {
+                    tracing::info!("Successfully stream email")
+                }
+                Err(err) => {
+                    tracing::error!("error stream publish email {}", err);
                 }
             }
 
@@ -253,7 +325,6 @@ impl Orchestrator for ExportOrchestrator {
             // }
         }
         self.logging.mark_as_completed(msg_id).await?;
-        self.local_cache.invalidate_all();
 
         Ok(())
     }

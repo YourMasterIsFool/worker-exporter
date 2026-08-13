@@ -1,11 +1,11 @@
-use moka::future::Cache;
-
 use crate::core::traits::dataset_trait::Dataset;
 use crate::core::types::ExportRow;
 use crate::{
     core::{
         traits::{
-            load::LoadEnum, orchestrator::ExporterColumn, writter::writter_trait::WritterTrait,
+            load::LoadEnum,
+            orchestrator::{DynamicExportConfig, ExporterColumn},
+            writter::writter_trait::WritterTrait,
         },
         types::WhereField,
     },
@@ -28,7 +28,7 @@ impl ExportRunner {
         filters: Option<Vec<WhereField>>,
         cursor: &mut Option<String>,
         limit: i64,
-        cache: &Cache<String, serde_json::Value>,
+        dynamic_export_config: Option<&DynamicExportConfig>,
     ) -> anyhow::Result<()>
     where
         D: Dataset + Send + Sync + ?Sized,
@@ -45,10 +45,7 @@ impl ExportRunner {
 
         writter.write_headers(&headers)?;
 
-        let columns = fields
-            .iter()
-            .map(|field| field.column.clone().unwrap_or_default())
-            .collect::<Vec<_>>(); // writing_headers
+        let columns = fields.iter().map(|f| f.column.clone()).collect::<Vec<_>>(); // writing_headers
 
         // let filters: Vec<WhereField> = vec![WhereField {
         //     field: "tenant_id".into(),
@@ -58,11 +55,26 @@ impl ExportRunner {
         // }];
         let strategy_enum = LoadEnum::Select(filters, Some(columns));
         let mut processed_count: i64 = 0;
+        let mut current_chunk: i64 = 0;
 
         loop {
-            let (result, new_cursor) = dataset
-                .fetch_batch_with_config(&strategy_enum, cursor.clone(), limit, fields, cache)
-                .await?;
+            let (result, new_cursor) = match dynamic_export_config {
+                Some(config) => {
+                    dataset
+                        .fetch_batch_with_dynamic_export_config(
+                            &strategy_enum,
+                            cursor.clone(),
+                            limit,
+                            config,
+                        )
+                        .await?
+                }
+                None => {
+                    dataset
+                        .fetch_batch(&strategy_enum, cursor.clone(), limit)
+                        .await?
+                }
+            };
             if result.is_empty() {
                 break;
             }
@@ -84,18 +96,21 @@ impl ExportRunner {
 
             writter.write_rows(&result_with_counter)?;
             processed_count += result_with_counter.len() as i64;
-
             counter += result_with_counter.len();
+            current_chunk += 1;
+
+            *cursor = new_cursor.clone();
+            logging
+                .update_cursor_and_processed_count(id, cursor.clone(), processed_count)
+                .await?;
+            if dynamic_export_config.is_some() {
+                logging.update_current_chunk(id, current_chunk).await?;
+            }
 
             if new_cursor.is_none() {
                 // last page — rows already written, exit cleanly
                 break;
             }
-
-            *cursor = new_cursor;
-            logging
-                .update_cursor_and_processed_count(id, cursor.clone(), processed_count)
-                .await?;
         }
         // let keystone_cursor = cursor.clone();
 

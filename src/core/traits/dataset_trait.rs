@@ -7,7 +7,7 @@ use moka::future::Cache;
 use crate::core::{
     traits::{
         load::LoadEnum,
-        orchestrator::{ExporterColumn, ImporterColumn, ImporterConfig},
+        orchestrator::{DynamicExportConfig, ExporterColumn, ImporterColumn, ImporterConfig},
     },
     types::{
         ExportRow, ImportDatasetConfig, ImportTableResult, SycnTableResult, SyncPayloadDataset,
@@ -43,16 +43,22 @@ pub trait Dataset {
         Ok(())
     }
 
-    async fn fetch_batch_with_config(
+    async fn fetch_batch_with_dynamic_export_config(
         &self,
         strategy_enum: &LoadEnum,
         cursor: Option<String>,
         limit: i64,
-        _fields: &[ExporterColumn],
-        _cache: &Cache<String, serde_json::Value>,
+        _config: &DynamicExportConfig,
     ) -> Result<(Vec<ExportRow>, Option<String>)> {
-        self.configure_export(_fields, _cache).await?;
         self.fetch_batch(strategy_enum, cursor, limit).await
+    }
+
+    async fn count_with_dynamic_export_config(
+        &self,
+        _strategy_enum: &LoadEnum,
+        _config: &DynamicExportConfig,
+    ) -> anyhow::Result<i64> {
+        anyhow::bail!("dataset does not support dynamic export counts")
     }
 }
 

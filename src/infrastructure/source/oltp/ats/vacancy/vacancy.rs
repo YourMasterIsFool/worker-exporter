@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder};
-use tracing::instrument;
-// Untuk jsonb
+use serde_json::Value;
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
 use crate::{
@@ -18,61 +16,9 @@ use crate::{
         },
         types::WhereField,
     },
+    domain::oltp::ats::vacancy::AtsVacancy,
     infrastructure::{db::ats_client::AtsClient, source::oltp::ats::types::AtsIngestionTable},
 };
-// Untuk numeric
-
-#[derive(Debug, FromRow, Serialize, Deserialize)]
-pub struct IngestionAtsVacancyModel {
-    pub id: Uuid,
-    // pub updated_at: NaiveDateTime,
-    // pub created_at: NaiveDateTime,
-    // pub deleted_at: Option<NaiveDateTime>,
-    // pub tenant_id: Uuid,
-    // pub group_id: Uuid,
-    pub name: String,
-    pub work_location_id: Option<Uuid>,
-    pub work_location_meta: Option<JsonValue>,
-    // pub description: Option<String>,
-    // pub requirement_stage_template_id: Option<Uuid>,
-    // pub recruitment_form_template_id: Option<Uuid>,
-    // pub pre_onboarding_template_id: Option<Uuid>,
-    // pub snapshot: Option<JsonValue>,
-    // pub active_publish_keys: Option<Vec<String>>,
-    // pub created_by: Option<Uuid>,
-    // pub permission_keys: Option<Vec<String>>,
-    // pub job_functions: Option<JsonValue>,
-    // pub expired_date: Option<NaiveDateTime>,
-    // pub is_confidential: bool,
-    // pub headcount_quota: i32,
-    // pub salary_min: Option<i64>,
-    // pub salary_max: Option<i64>,
-    // pub is_hide_salary: bool,
-    // pub verified_status: Option<JsonValue>,
-    // pub status: String, // Bisa diganti dengan Enum Rust
-    // pub is_locked: bool,
-    // pub publish_at: Option<NaiveDateTime>,
-    // pub job_position_id: Option<Uuid>,
-    // pub job_position_meta: Option<JsonValue>,
-    // pub organization_id: Option<Uuid>,
-    // pub organization_meta: Option<JsonValue>,
-    // pub employment_status_id: Option<Uuid>,
-    // pub employment_status_meta: Option<JsonValue>,
-    // pub work_placement_type_id: Option<Uuid>,
-    // pub work_placement_type_meta: Option<JsonValue>,
-    // pub work_location_id: Option<Uuid>,
-    // pub work_location_meta: Option<JsonValue>,
-    // pub total_hired: Option<i32>,
-    // pub keywords: Option<Vec<String>>,
-    // pub filterable_attribute: Option<JsonValue>,
-    // pub sla: Option<i32>,
-    // pub province_id: Option<Uuid>,
-    // pub province_meta: Option<JsonValue>,
-    // pub city_id: Option<Uuid>,
-    // pub city_meta: Option<JsonValue>,
-    // pub completion_status: Option<String>,
-    // pub current_hired: i32, // Mapping dari "currentHired"
-}
 
 pub struct AtsVacancySource {
     pub pool: Arc<AtsClient>,
@@ -86,120 +32,148 @@ impl BuildTableTrait<AtsIngestionTable> for AtsVacancySource {
     fn columns(&self) -> &'static [&'static str] {
         &[
             "id",
-            // "updated_at",
-            // "created_at",
-            // "deleted_at",
-            // "tenant_id",
-            // "group_id",
+            "updated_at",
+            "created_at",
+            "deleted_at",
+            "tenant_id",
+            "group_id",
             "name",
-            // "description",
-            // "requirement_stage_template_id",
-            // "recruitment_form_template_id",
-            // "pre_onboarding_template_id",
-            // "snapshot",
-            // "active_publish_keys",
-            // "created_by",
-            // "permission_keys",
-            // "job_functions",
-            // "expired_date",
-            // "is_confidential",
-            // "headcount_quota",
-            // "salary_min",
-            // "salary_max",
-            // "is_hide_salary",
-            // "verified_status",
-            // "status",
-            // "is_locked",
-            // "publish_at",
-            // "job_position_id",
-            // "job_position_meta",
-            // "organization_id",
-            // "organization_meta",
-            // "employment_status_id",
-            // "employment_status_meta",
-            // "work_placement_type_id",
-            // "work_placement_type_meta",
+            "description",
+            "requirement_stage_template_id",
+            "recruitment_form_template_id",
+            "pre_onboarding_template_id",
+            "pre_onboarding_template_meta",
+            "snapshot",
+            "active_publish_keys",
+            "created_by",
+            "permission_keys",
+            "job_functions",
+            "job_function_ids",
+            "branch_id",
+            "branch_meta",
+            "organization_id",
+            "organization_meta",
+            "expired_date",
+            "employment_status_id",
+            "employment_status_meta",
+            "work_placement_type_id",
+            "work_placement_type_meta",
             "work_location_id",
             "work_location_meta",
-            // "total_hired",
-            // "keywords",
-            // "filterable_attribute",
-            // "sla",
-            // "province_id",
-            // "province_meta",
-            // "city_id",
-            // "city_meta",
-            // "completion_status",
-            // "\"currentHired\"",
+            "province_id",
+            "province_meta",
+            "city_id",
+            "city_meta",
+            "job_position_id",
+            "job_position_meta",
+            "is_confidential",
+            "headcount_quota",
+            "salary_min",
+            "salary_max",
+            "is_hide_salary",
+            "currency_code",
+            "is_no_expired_date",
+            "version",
+            "verified_status",
+            "status::text AS status",
+            "completion_status",
+            "\"currentHired\" AS current_hired",
+            "is_locked",
+            "total_hired",
+            "publish_at",
+            "sla",
+            "logging_id",
+            "keywords",
+            "filterable_attribute",
         ]
     }
 }
 
 #[async_trait::async_trait]
 impl DataFetcherJson for AtsVacancySource {
-    #[instrument(skip(self), fields(types = "vacancy data fetcher"))]
-    async fn fetch(
-        &self,
-        filters: Option<Vec<WhereField>>,
-    ) -> anyhow::Result<Vec<serde_json::Value>> {
-        let sql = format!(
-            " SELECT {} from {} ",
+    async fn fetch(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<Vec<Value>> {
+        let mut query = QueryBuilder::<Postgres>::new(format!(
+            "SELECT {} FROM {}",
             self.columns().join(", "),
             self.table().table_name()
-        );
-
-        let mut qb = QueryBuilder::new(&sql);
-
-        let parse_result =
-            fetch_data_json::<IngestionAtsVacancyModel>(&mut qb, filters, &self.pool.pool, None)
-                .await;
-
-        match parse_result {
-            Ok(result) => {
-                tracing::debug!(" vacancy source {:?}", result.clone());
-                Ok(result)
-            }
-            Err(e) => {
-                tracing::error!("{}", e);
-                Err(e)
-            }
-        }
+        ));
+        fetch_data_json::<AtsVacancy>(&mut query, filters, &self.pool.pool, None).await
     }
 }
 
 #[async_trait::async_trait]
 impl SourceIncrementalExtract for AtsVacancySource {
+    async fn count_updated_after(
+        &self,
+        updated_after: Option<chrono::NaiveDateTime>,
+    ) -> anyhow::Result<i64> {
+        let mut query = sqlx::query_scalar("SELECT COUNT(*) FROM vacancy.vacancy");
+        if let Some(updated_after) = updated_after {
+            query =
+                sqlx::query_scalar("SELECT COUNT(*) FROM vacancy.vacancy WHERE updated_at > $1")
+                    .bind(updated_after.and_utc());
+        }
+        Ok(query.fetch_one(&self.pool.pool).await?)
+    }
+
+    async fn extract_updated_after(
+        &self,
+        updated_after: Option<chrono::NaiveDateTime>,
+        limit: i64,
+    ) -> anyhow::Result<(Vec<Value>, Option<Uuid>)> {
+        let mut query = QueryBuilder::<Postgres>::new(format!(
+            "SELECT {} FROM {}",
+            self.columns().join(", "),
+            self.table().table_name()
+        ));
+        if let Some(updated_after) = updated_after {
+            query
+                .push(" WHERE updated_at > ")
+                .push_bind(updated_after.and_utc());
+        }
+        query
+            .push(" ORDER BY updated_at, id LIMIT ")
+            .push_bind(limit);
+
+        let rows = query
+            .build_query_as::<AtsVacancy>()
+            .fetch_all(&self.pool.pool)
+            .await?;
+        let next_cursor = rows.last().map(|row| row.id);
+        Ok((
+            rows.iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()?,
+            next_cursor,
+        ))
+    }
+
     async fn extract(
         &self,
         cursor: Option<Uuid>,
         limit: i64,
-        _strategy_enum: &LoadEnum,
-    ) -> anyhow::Result<(Vec<serde_json::Value>, Option<Uuid>)> {
-        let sql_query = format!(
+        _strategy: &LoadEnum,
+    ) -> anyhow::Result<(Vec<Value>, Option<Uuid>)> {
+        let mut query = QueryBuilder::<Postgres>::new(format!(
             "SELECT {} FROM {}",
-            self.columns().join(","),
+            self.columns().join(", "),
             self.table().table_name()
-        );
-
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(sql_query);
-
-        if let Some(c) = cursor {
-            qb.push(" WHERE id > ").push_bind(c);
+        ));
+        if let Some(cursor) = cursor {
+            query.push(" WHERE id > ").push_bind(cursor);
         }
-        qb.push(" LIMIT ").push_bind(limit);
-        let result = qb
-            .build_query_as::<IngestionAtsVacancyModel>()
+        query.push(" ORDER BY id LIMIT ").push_bind(limit);
+
+        let rows = query
+            .build_query_as::<AtsVacancy>()
             .fetch_all(&self.pool.pool)
             .await?;
-
-        let last_cursor: Option<Uuid> = result.last().map(|last| last.id);
-
-        let parse_result = result
-            .iter()
-            .map(serde_json::to_value)
-            .collect::<Result<Vec<serde_json::Value>, _>>()?;
-
-        tracing::debug!(" candidate source {:?}", parse_result.clone());
-        Ok((parse_result, last_cursor))
+        let next_cursor = rows.last().map(|row| row.id);
+        Ok((
+            rows.iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()?,
+            next_cursor,
+        ))
     }
 }
