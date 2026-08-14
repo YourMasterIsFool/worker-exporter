@@ -19,7 +19,7 @@ use crate::{
         config::config,
         traits::{
             dataset_trait::Dataset,
-            orchestrator::{Orchestrator, OrchestratorJob},
+            orchestrator::{DynamicExportConfig, Orchestrator, OrchestratorJob},
             publisher::Publisher,
         },
         types::WhereField,
@@ -80,22 +80,34 @@ impl ExportOrchestrator {
 impl Orchestrator for ExportOrchestrator {
     #[instrument(skip(self, job), fields(msg_id = %msg_id, tenant_id = %job.tenant_id, types="export"))]
     async fn run(&self, job: &OrchestratorJob, msg_id: &str) -> anyhow::Result<()> {
-        let dynamic_export_config = job.dynamic_export_config.as_ref();
+        let dynamic_export_config = job.dynamic_export_config.as_ref().map(|dynamic| {
+            job.export_config.as_ref().map_or_else(
+                || dynamic.clone(),
+                |export| DynamicExportConfig {
+                    fields: export.fields.clone(),
+                    format: export.format.clone(),
+                    template_code: export.template_code.clone(),
+                    structure_template_code: export.structure_template_code.clone(),
+                    redirected_url: export.redirected_url.clone(),
+                    chunk: export.chunk,
+                    ..dynamic.clone()
+                },
+            )
+        });
         let dynamic_legacy_config;
-        let config = match (&job.export_config, dynamic_export_config) {
+        let config = match (&job.export_config, dynamic_export_config.as_ref()) {
             (Some(config), None) => config,
+            (Some(config), Some(_)) => config,
             (None, Some(config)) => {
                 dynamic_legacy_config = config.export_config();
                 &dynamic_legacy_config
             }
-            (Some(_), Some(_)) => {
-                anyhow::bail!("use export_config or dynamic_export_config, not both")
-            }
             (None, None) => anyhow::bail!("export configuration is required"),
         };
-        let dynamic_filters =
-            dynamic_export_config.map(|config| Self::dynamic_filters(job, config));
-        let (total_count, total_chunk) = match dynamic_export_config {
+        let dynamic_filters = dynamic_export_config
+            .as_ref()
+            .map(|config| Self::dynamic_filters(job, config));
+        let (total_count, total_chunk) = match dynamic_export_config.as_ref() {
             Some(config) => {
                 if config.chunk <= 0 {
                     anyhow::bail!("dynamic export chunk must be greater than zero");
@@ -205,7 +217,11 @@ impl Orchestrator for ExportOrchestrator {
             })
             .await??;
 
-            let dataset = self.dataset.get(&config.dataset)?;
+            let dataset_key = dynamic_export_config
+                .as_ref()
+                .map(|config| config.dataset.as_str())
+                .unwrap_or(&config.dataset);
+            let dataset = self.dataset.get(dataset_key)?;
             let job_filter = dynamic_filters.clone().unwrap_or_else(|| {
                 let mut filters = vec![WhereField {
                     field: "tenant_id".into(),
@@ -219,7 +235,7 @@ impl Orchestrator for ExportOrchestrator {
                 }
                 filters
             });
-            let mut cursor: Option<String> = match dynamic_export_config {
+            let mut cursor: Option<String> = match dynamic_export_config.as_ref() {
                 Some(_) => None,
                 None => Some(
                     dataset
@@ -238,7 +254,7 @@ impl Orchestrator for ExportOrchestrator {
                 Some(job_filter),
                 &mut cursor,
                 config.chunk,
-                dynamic_export_config,
+                dynamic_export_config.as_ref(),
             )
             .await;
 
