@@ -12,6 +12,13 @@ pub enum AtsIngestionTable {
     FormField,
     FormTemplate,
     FormTemplateDetail,
+    Form,
+    FormQuestion,
+    FormQuestionOption,
+    FormResponse,
+    FormResponseAnswer,
+    ReferenceCheck,
+    ReferenceCheckReferee,
 }
 
 impl AtsIngestionTable {
@@ -32,6 +39,13 @@ impl AtsIngestionTable {
             AtsIngestionTable::FormField => "form.field",
             AtsIngestionTable::FormTemplate => "form.template",
             AtsIngestionTable::FormTemplateDetail => "form.template_detail",
+            AtsIngestionTable::ReferenceCheck => "process.reference_checks",
+            AtsIngestionTable::ReferenceCheckReferee => "process.reference_check_referees",
+            AtsIngestionTable::Form => "form.forms",
+            AtsIngestionTable::FormQuestion => "form.form_questions",
+            AtsIngestionTable::FormQuestionOption => "form.form_question_options",
+            AtsIngestionTable::FormResponse => "form.form_responses",
+            AtsIngestionTable::FormResponseAnswer => "form.form_response_answers",
         }
     }
 }

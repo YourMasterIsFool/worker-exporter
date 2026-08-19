@@ -43,7 +43,10 @@ use crate::{
     repo::WarehouseRepo,
 };
 use redis::{aio::ConnectionManager, Client};
+use sqlx::migrate::Migrator;
 use std::sync::Arc;
+
+static WAREHOUSE_MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 pub fn init_logger() {
     let filter =
@@ -75,11 +78,8 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     });
 
     // defining pool in database manager
-    let database_manager = Arc::new(
-        DatabaseManager::new(&config)
-            .await
-            .expect("DATABASE MANAGER ERROR"),
-    );
+    let database_manager = Arc::new(DatabaseManager::new(&config).await?);
+    WAREHOUSE_MIGRATOR.run(&database_manager.warehouse).await?;
 
     // defining database infra manager
     let database_infra_manager = Arc::new(DatabaseInfraManager::new(database_manager.clone()));

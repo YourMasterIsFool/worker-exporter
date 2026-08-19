@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use crate::application::datasets::export::{
-    ats::lsi_candidate_dataset::LsiCandidateDataset, dynamic_export_dataset::DynamicExportDataset,
+    ats::{
+        lsi_candidate_dataset::LsiCandidateDataset,
+        lsi_reference_check_dataset::LsiReferenceCheckDataset,
+    },
+    dynamic_export_dataset::DynamicExportDataset,
 };
 use crate::application::datasets::import::ats::ats_import_lsi_vacancy_dataset::AtsImportLsiVacancyDataset;
 use crate::application::datasets::import::ats::lsi_import_vacancy_v1::LsiImportVacancyV1;
@@ -46,6 +50,16 @@ pub fn build_dataset_registry(
             grpc_service: grpc_service.clone(),
         }),
     );
+    registry
+        .register(
+            "lsi_reference_check_dataset",
+            Arc::new(LsiReferenceCheckDataset {
+                client: ats_db.clone(),
+                data_fetcher: data_fetcher_registry.clone(),
+                source: source_registry.clone(),
+            }),
+        )
+        .expect("register lsi reference check dataset");
     registry
         .register(
             "DYNAMIC_EXPORT_DATASET",

@@ -31,8 +31,15 @@ use crate::{
                     education::AtsEducationSource, experient::AtsExperinceSource,
                 },
                 form::{
-                    field::IngestionFormFieldSource, template::IngestionFormTemplateSource,
+                    field::IngestionFormFieldSource, forms::FormSource,
+                    question::FormQuestionSource, question_option::FormQuestionOptionSource,
+                    response::FormResponseSource, response_answer::FormResponseAnswerSource,
+                    template::IngestionFormTemplateSource,
                     template_detail::IngestionFormTemplateDetailSource,
+                },
+                process::{
+                    reference_check::ReferenceCheckSource,
+                    reference_check_referee::ReferenceCheckRefereeSource,
                 },
                 vacancy::{
                     vacancy::AtsVacancySource, vacancy_custom_field::OltpVacancyCustomFieldSource,
@@ -240,6 +247,41 @@ pub fn build_data_fetcher_json_registry(
     );
 
     registry.register(
+        "FORM",
+        Arc::new(FormSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "FORM_QUESTION",
+        Arc::new(FormQuestionSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "FORM_QUESTION_OPTION",
+        Arc::new(FormQuestionOptionSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "FORM_RESPONSE",
+        Arc::new(FormResponseSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "FORM_RESPONSE_ANSWER",
+        Arc::new(FormResponseAnswerSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
         "ats_experience_fetcher",
         Arc::new(AtsExperinceSource {
             pool: manager.ats.clone(),
@@ -249,6 +291,20 @@ pub fn build_data_fetcher_json_registry(
     registry.register(
         "ats_candidate_field_fetcher",
         Arc::new(AtsCandidateClientFieldSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "ats_reference_check_fetcher",
+        Arc::new(ReferenceCheckSource {
+            pool: manager.ats.clone(),
+        }),
+    );
+
+    registry.register(
+        "ats_reference_check_referee_fetcher",
+        Arc::new(ReferenceCheckRefereeSource {
             pool: manager.ats.clone(),
         }),
     );
