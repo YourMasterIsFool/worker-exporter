@@ -37,6 +37,7 @@ impl Orchestrator for IngestionOrchestrator {
             .count_new_data(&config.source, max_olap_updated_at)
             .await?;
         if total_data == 0 {
+            pipeline.after_load(&config.loader).await?;
             info!(%msg_id, source = %config.source, loader = %config.loader, "ingestion skipped: no newer source rows");
             return Ok(());
         }
@@ -46,6 +47,7 @@ impl Orchestrator for IngestionOrchestrator {
             .run(None, total_data, &config.source, max_olap_updated_at)
             .await?;
         let loaded = loader.load(&rows).await?;
+        pipeline.after_load(&config.loader).await?;
 
         info!(%msg_id, source = %config.source, loader = %config.loader, loaded, "ingestion completed");
         Ok(())

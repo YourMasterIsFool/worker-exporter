@@ -22,6 +22,7 @@ use crate::core::traits::etl::DataFetcherJson;
 // 🔥 Pastikan mengimpor ImporterDatasetV1
 use crate::application::datasets::import;
 use crate::core::traits::load::{self, ImportLoadPersitence, IncrementalLoadPersitence};
+use crate::core::traits::orchestrator::BackfieldCofig;
 use crate::core::traits::pipeline::pipeline_trait::PipelineImport;
 use crate::core::traits::publisher::Publisher;
 use crate::core::types::{
@@ -48,7 +49,6 @@ pub struct ImportOrchestrator {
     pub import_datasetV1: Arc<ImporterDatasetRegistryV1>,
     pub import_pipeline: Arc<PipelineImportRegistry>,
     pub logging: Arc<dyn LoggingRepo>,
-    pub import_load_registry: Arc<ImportLoaderRegistry>,
     pub local_cache: Cache<String, serde_json::Value>,
     pub fetcher: Arc<DataFetcherJsonRegistry>,
     pub publisher: Arc<dyn Publisher + Send + Sync>,
@@ -67,6 +67,18 @@ impl ImportOrchestrator {
             | Some(CastingEnum::Enum(_)) => "=",
             Some(CastingEnum::Varchar) | None => "ILIKE",
         }
+    }
+
+    async fn publish_backfield(&self, config: &BackfieldCofig) -> anyhow::Result<()> {
+
+         let payload = serde_json::to_value(&config.payload.clone())?;
+         self.publisher.publish(&config.stream, payload.clone()).await?;
+
+
+         Ok(())
+
+
+
     }
 
     async fn publish_auto_sync(
@@ -96,6 +108,8 @@ impl ImportOrchestrator {
             ingestion_config: None,
             import_config: None,
             sync_config: Some(sync_config),
+            rollback_config: None,
+            aggregate_config: None,
             filters: job.filters.clone(),
             permissions_key: job.permissions_key.clone(),
         };
@@ -307,10 +321,7 @@ impl ImportOrchestrator {
         dataset: &dyn ImporterDatasetV1,
         logging_id: &str,
         dataset_config: &ImportDatasetConfig,
-        import_load_registry: &dyn ImportLoadPersitence,
     ) -> anyhow::Result<()> {
-        let _ = import_pipeline;
-
         let temp_file_path = PathBuf::from(format!(
             "/tmp/worker-exporter-import-{}.xlsx",
             uuid::Uuid::now_v7()
@@ -424,8 +435,8 @@ impl ImportOrchestrator {
                         chunk_batch.len()
                     );
 
-                    import_load_registry
-                        .load(&chunk_batch, logging_id, &dataset_config)
+                    import_pipeline
+                        .load(&chunk_batch, logging_id, dataset_config)
                         .await?;
                 }
             }
@@ -459,7 +470,6 @@ impl ImportOrchestrator {
         dataset: &dyn ImporterDatasetV1,
         logging_id: &str,
         dataset_config: &ImportDatasetConfig,
-        import_load_registry: &dyn ImportLoadPersitence,
     ) -> anyhow::Result<()> {
         let response = reqwest::get(url).await?.error_for_status()?;
         info!("logging id {}", logging_id);
@@ -518,8 +528,8 @@ impl ImportOrchestrator {
             }
 
             if !chunk_batch.is_empty() {
-                import_load_registry
-                    .load(&chunk_batch, logging_id, &dataset_config)
+                import_pipeline
+                    .load(&chunk_batch, logging_id, dataset_config)
                     .await?;
             }
         }
@@ -562,8 +572,6 @@ impl Orchestrator for ImportOrchestrator {
             };
 
             let logging_id = self.logging.store(logging_entity).await?;
-            let import_load_registry = self.import_load_registry.get(&import_config.loader)?;
-
             let dataset = self.import_datasetV1.get(&import_config.dataset)?;
             let payload_download_url = vec![import_config.key.clone()];
             let get_file = self
@@ -595,7 +603,6 @@ impl Orchestrator for ImportOrchestrator {
                         dataset.as_ref(),
                         &logging_id,
                         &dataset_config,
-                        import_load_registry.as_ref(),
                     )
                     .await
                 {
@@ -627,7 +634,6 @@ impl Orchestrator for ImportOrchestrator {
                         dataset.as_ref(),
                         &logging_id,
                         &dataset_config,
-                        import_load_registry.as_ref(),
                     )
                     .await
                 {
@@ -635,8 +641,21 @@ impl Orchestrator for ImportOrchestrator {
                         self.logging
                             .update_status(msg_id, LoggingStatus::Completed)
                             .await?;
+
+                        let backfield_config = &import_config.backfield_config;
                         if import_config.auto_sync {
                             self.publish_auto_sync(job, &logging_id).await?;
+
+                            if let Some(config) = &backfield_config{
+                             match self.publish_backfield(config).await {
+                                Ok(()) =>{
+                                    tracing::info!("backfield publish has been successfully")
+                                }
+                                Err(err) => {
+                                    tracing::error!("backfield publish has been error {}", err);
+                                }
+                             }
+                            }
                         }
                     }
                     Err(e) => {

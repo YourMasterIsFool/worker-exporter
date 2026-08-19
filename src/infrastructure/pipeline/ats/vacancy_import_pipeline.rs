@@ -1,44 +1,42 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
-    application::loader_registry::LoaderRegistry,
-    core::{traits::pipeline::pipeline_trait::PipelineImport, types::ImportRowBulk},
+    application::import::import_registry::ImportLoaderRegistry,
+    core::{
+        traits::pipeline::pipeline_trait::PipelineImport,
+        types::{ImportDatasetConfig, ImportTableResult},
+    },
 };
 
+/// Config-driven import pipeline. Each configured temporary loader receives
+/// the same mapped chunk and may choose the tables it owns.
 pub struct VacancyImportPipeline {
-    pub loader: Arc<LoaderRegistry>,
+    pub loader: Arc<ImportLoaderRegistry>,
 }
 
 #[async_trait::async_trait]
 impl PipelineImport for VacancyImportPipeline {
-    async fn import(
+    async fn load(
         &self,
-        mapper_data: &HashMap<String, Vec<ImportRowBulk>>,
+        rows: &[std::collections::HashMap<String, ImportTableResult>],
         logging_id: &str,
-    ) -> anyhow::Result<()> {
-        // Asumsi: get() mengembalikan Result<T, AppError> atau Option
-        // Jika return-nya Result, gunakan ? untuk langsung return error ke fungsi import
+        config: &ImportDatasetConfig,
+    ) -> anyhow::Result<i64> {
+        let loaders = if config.import_config.loaders.is_empty() {
+            std::slice::from_ref(&config.import_config.loader)
+        } else {
+            config.import_config.loaders.as_slice()
+        };
 
-        let vacancy_loader = self
-            .loader
-            .get("warehouse_ats_vacancy_temporary")
-            .map_err(|e| anyhow::anyhow!("Loader not found: {}", e))?;
+        if loaders.iter().any(|loader| loader.trim().is_empty()) {
+            anyhow::bail!("import_config.loader atau import_config.loaders wajib diisi");
+        }
 
-        for (key, rows) in mapper_data {}
-
-        // if let Some(rows) = mapper_data.get("main") {
-        //     let mapped_value = rows.iter().map(|f| f.value.clone()).collect::<Vec<_>>();
-
-        //     // Perbaikan: map_err hanya perlu mengembalikan AppError, bukan Err(AppError)
-        //     vacancy_loader
-        //         .load(&mapped_value)
-        //         .await
-        //         .map_err(|err| anyhow::anyhow!("Vacancy Ingestion pipeline error: {}", err))?;
-
-        //     info!("Pipeline Import Vacancy IngestionPipeline success");
-        // }
-
-        for (key, rows) in mapper_data {}
-        Ok(())
+        let mut loaded = 0;
+        for loader_name in loaders {
+            let loader = self.loader.get(loader_name)?;
+            loaded += loader.load(rows, logging_id, config).await?;
+        }
+        Ok(loaded)
     }
 }

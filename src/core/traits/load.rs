@@ -69,6 +69,13 @@ pub trait BulkLoaderTrait: Send + Sync {
 }
 
 #[async_trait::async_trait]
+pub trait RollbackLoader: Send + Sync {
+    /// Deletes only rows owned by one import/sync logging ID. The enclosing
+    /// rollback pipeline supplies one transaction for every configured loader.
+    async fn rollback(&self, tx: &mut Transaction<'_, Postgres>, logging_id: &str) -> Result<i64>;
+}
+
+#[async_trait::async_trait]
 pub trait SyncAggregator: Send + Sync {
     async fn run(&self, payload: &SyncPayloadDataset, stream_id: &str) -> Result<i64>;
 }

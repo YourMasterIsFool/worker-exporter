@@ -4,7 +4,10 @@ use anyhow::Result;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::core::types::{ImportRow, ImportRowBulk};
+use crate::core::{
+    traits::orchestrator::AggregateConfig,
+    types::{ImportDatasetConfig, ImportRow, ImportRowBulk, ImportTableResult},
+};
 
 #[async_trait::async_trait]
 pub trait PipelineTrait: Send + Sync {
@@ -21,13 +24,29 @@ pub trait PipelineTrait: Send + Sync {
         source: &str,
         updated_after: Option<NaiveDateTime>,
     ) -> Result<i64>;
+
+    async fn after_load(&self, loader: &str) -> Result<()> {
+        let _ = loader;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
 pub trait PipelineImport: Send + Sync {
-    async fn import(
+    async fn load(
         &self,
-        data: &HashMap<String, Vec<ImportRowBulk>>,
+        rows: &[HashMap<String, ImportTableResult>],
         logging_id: &str,
-    ) -> Result<()>;
+        config: &ImportDatasetConfig,
+    ) -> Result<i64>;
+}
+
+#[async_trait::async_trait]
+pub trait RollbackPipeline: Send + Sync {
+    async fn rollback(&self, logging_id: &str, loaders: &[String]) -> Result<i64>;
+}
+
+#[async_trait::async_trait]
+pub trait AggregatePipeline: Send + Sync {
+    async fn run(&self, config: &AggregateConfig) -> Result<i64>;
 }

@@ -1,10 +1,13 @@
 pub mod bulk_loader_registry;
+pub mod aggregate;
+pub mod aggregate_pipeline_registry;
 pub mod dataset;
 pub mod datasets;
 pub mod errors;
 pub mod gprc_registry;
 pub mod grpcs;
 pub mod repositories;
+pub mod rollback_loader_registry;
 pub mod types;
 pub mod usecases;
 

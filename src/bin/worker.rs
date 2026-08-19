@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+use worker_exporter::application::handler::aggregate_handler::AggregateHandler;
 use worker_exporter::application::handler::exporter_handler::ExportHandler;
 use worker_exporter::application::handler::import_handler::ImportHandler;
 use worker_exporter::application::handler::ingestion_handler::IngestionHandler;
+use worker_exporter::application::handler::rollback_handler::RollbackHandler;
 use worker_exporter::application::handler::sync_handler::SyncHandler;
 use worker_exporter::boostrap::bootstrap;
 use worker_exporter::core::traits::consumer::{Consumer, ConsumerMessage};
@@ -33,6 +35,8 @@ async fn main() -> Result<()> {
         ("stream:export", "export-group"),
         ("stream:import", "import-group"),
         ("stream:sync", "sync-group"),
+        ("stream:rollback", "rollback-group"),
+        ("stream:aggregate", "aggregate-group"),
     ];
 
     for (stream, group) in streams {
@@ -96,6 +100,20 @@ async fn main() -> Result<()> {
                 group: "sync-group".to_string(),
                 consumer_name: format!("sync-worker-{}", i),
             });
+        let rollback_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+            Arc::new(RedisStreamConsumer {
+                client: manager.clone(),
+                stream_key: "stream:rollback".to_string(),
+                group: "rollback-group".to_string(),
+                consumer_name: format!("rollback-worker-{}", i),
+            });
+        let aggregate_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+            Arc::new(RedisStreamConsumer {
+                client: manager.clone(),
+                stream_key: "stream:aggregate".to_string(),
+                group: "aggregate-group".to_string(),
+                consumer_name: format!("aggregate-worker-{}", i),
+            });
 
         let export_handler = ExportHandler {
             app_state: state.clone(),
@@ -110,6 +128,14 @@ async fn main() -> Result<()> {
         let sync_handler = SyncHandler {
             app_state: state.clone(),
             consumer: sync_consumer,
+        };
+        let rollback_handler = RollbackHandler {
+            app_state: state.clone(),
+            consumer: rollback_consumer,
+        };
+        let aggregate_handler = AggregateHandler {
+            app_state: state.clone(),
+            consumer: aggregate_consumer,
         };
 
         tokio::spawn(async move {
@@ -127,6 +153,16 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             if let Err(err) = sync_handler.handler().await {
                 tracing::error!("sync handler crashed: {:?}", err);
+            }
+        });
+        tokio::spawn(async move {
+            if let Err(err) = rollback_handler.handler().await {
+                tracing::error!("rollback handler crashed: {:?}", err);
+            }
+        });
+        tokio::spawn(async move {
+            if let Err(err) = aggregate_handler.handler().await {
+                tracing::error!("aggregate handler crashed: {:?}", err);
             }
         });
     }

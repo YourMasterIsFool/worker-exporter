@@ -13,8 +13,10 @@ fn stream_from_payload(payload: &Value) -> Result<String, &'static str> {
         .ok_or("payload.type wajib diisi")?;
 
     match job_type.as_str() {
-        "import" | "export" | "sync" | "ingestion" => Ok(format!("stream:{job_type}")),
-        _ => Err("payload.type harus import, export, sync, atau ingestion"),
+        "import" | "export" | "sync" | "ingestion" | "rollback" | "aggregate" => {
+            Ok(format!("stream:{job_type}"))
+        }
+        _ => Err("payload.type harus import, export, sync, ingestion, rollback, atau aggregate"),
     }
 }
 
@@ -54,6 +56,14 @@ mod tests {
         assert_eq!(
             stream_from_payload(&json!({"type": "export"})),
             Ok("stream:export".into())
+        );
+        assert_eq!(
+            stream_from_payload(&json!({"type": "rollback"})),
+            Ok("stream:rollback".into())
+        );
+        assert_eq!(
+            stream_from_payload(&json!({"type": "aggregate"})),
+            Ok("stream:aggregate".into())
         );
     }
 }

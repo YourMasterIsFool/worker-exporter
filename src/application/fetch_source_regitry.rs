@@ -40,6 +40,7 @@ use crate::{
             },
             organization::{
                 core::{
+                    general_organization::GeneralOrganizationSource,
                     ingestion_job_grade::IngestionJobGradeSource,
                     ingestion_job_level::IngestionJobLevelSource,
                     ingestion_job_position::IngestionOrganizationJobPositionSource,
@@ -283,6 +284,13 @@ pub fn build_data_fetcher_json_registry(
     registry.register(
         "ORGANIZATION",
         Arc::new(IngestionOrganizationUnitSource {
+            pool: manager.organization.clone(),
+        }),
+    );
+
+    registry.register(
+        "GENERAL_ORGANIZATION",
+        Arc::new(GeneralOrganizationSource {
             pool: manager.organization.clone(),
         }),
     );

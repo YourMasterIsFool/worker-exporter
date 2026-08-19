@@ -37,6 +37,8 @@ pub struct ExampleValue {
     #[serde(default)]
     pub options: Option<Vec<String>>,
     pub filter: Option<Vec<WhereField>>,
+    #[serde(default, alias = "displayField")]
+    pub display_field: Option<String>,
     #[serde(default, alias = "usingCache")]
     pub using_cache: bool,
 }
@@ -46,6 +48,37 @@ pub struct TemplateHeader {
     pub header: String,
     #[serde(default, alias = "backgroundColor")]
     pub background_color: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ImportConfigField {
+    header: String,
+    #[serde(default)]
+    fetcher: Option<String>,
+    #[serde(default)]
+    fetcher_field_key: Option<String>,
+    #[serde(default, alias = "isCache")]
+    is_cache: bool,
+    #[serde(default)]
+    select: Option<String>,
+    #[serde(default)]
+    template: Option<ImportFieldTemplate>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ImportFieldTemplate {
+    #[serde(default)]
+    value: Option<Value>,
+    #[serde(default, alias = "valueType")]
+    value_type: Option<ValueType>,
+    #[serde(default)]
+    fetcher: Option<String>,
+    #[serde(default)]
+    filter: Option<Vec<WhereField>>,
+    #[serde(default)]
+    options: Option<Vec<String>>,
+    #[serde(default, alias = "isCache")]
+    is_cache: bool,
 }
 
 /// Representasi satu baris lookup table (id + name)
@@ -125,6 +158,76 @@ impl GeneratedEmailTemplateUsecase {
             })
             .await
             .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
+    fn resolve_import_config_fields(
+        payload: &Value,
+    ) -> anyhow::Result<(Vec<TemplateHeader>, Vec<ExampleValue>)> {
+        let import_config = payload
+            .get("import_config")
+            .context("import_config is required")?;
+        let fields = import_config
+            .get("fields")
+            .cloned()
+            .context("import_config.fields is required")?;
+        let fields: Vec<ImportConfigField> =
+            serde_json::from_value(fields).context("import_config.fields has invalid format")?;
+        if fields.is_empty() {
+            anyhow::bail!("import_config.fields cannot be empty");
+        }
+
+        let cached_fetchers = import_config
+            .get("fetcher_caching")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_ascii_uppercase)
+            .collect::<Vec<_>>();
+
+        let headers = fields
+            .iter()
+            .map(|field| TemplateHeader {
+                header: field.header.clone(),
+                background_color: None,
+            })
+            .collect::<Vec<_>>();
+        let examples = fields
+            .into_iter()
+            .map(|field| {
+                let template = field.template.unwrap_or_default();
+                let fetcher = template.fetcher.or(field.fetcher);
+                let using_cache = field.is_cache
+                    || template.is_cache
+                    || fetcher.as_deref().is_some_and(|name| {
+                        cached_fetchers
+                            .iter()
+                            .any(|item| item == &name.to_ascii_uppercase())
+                    });
+                ExampleValue {
+                    value: template.value,
+                    value_type: template.value_type,
+                    fetcher,
+                    options: template.options,
+                    filter: template.filter,
+                    display_field: field
+                        .fetcher_field_key
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned)
+                        .or_else(|| field.select.as_deref().and_then(select_display_field)),
+                    using_cache,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Ok((headers, examples))
+    }
+
+    pub async fn execute_from_import_config(&self, payload: Value) -> anyhow::Result<Vec<u8>> {
+        let (headers, example_values) = Self::resolve_import_config_fields(&payload)?;
+        self.execute(&headers, &example_values, payload).await
     }
 
     pub async fn execute(
@@ -230,10 +333,18 @@ impl GeneratedEmailTemplateUsecase {
                     .map(str::to_owned);
                 let filters = example.filter.clone();
                 let using_cache = example.using_cache;
-                let display_field = fetcher_name
+                let display_field = example
+                    .display_field
                     .as_deref()
-                    .map(lookup_display_field)
-                    .unwrap_or("name");
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        fetcher_name
+                            .as_deref()
+                            .map(lookup_display_field)
+                            .map(str::to_owned)
+                    })
+                    .unwrap_or_else(|| "name".to_owned());
                 let title = headers
                     .get(header_index)
                     .map(|header| header.header.clone())
@@ -268,12 +379,12 @@ impl GeneratedEmailTemplateUsecase {
                             .fetch_lookup_rows(
                                 &fetcher_name,
                                 filters.clone(),
-                                display_field,
+                                &display_field,
                                 using_cache,
                             )
                             .await?;
                         let lookup_key =
-                            Self::lookup_cache_key(&fetcher_name, &filters, display_field);
+                            Self::lookup_cache_key(&fetcher_name, &filters, &display_field);
                         (rows, lookup_key, fetcher_name)
                     };
                     Ok::<_, anyhow::Error>((
@@ -508,6 +619,11 @@ fn lookup_display_field(fetcher_name: &str) -> &'static str {
     }
 }
 
+fn select_display_field(select: &str) -> Option<String> {
+    let column = select.rsplit(':').next()?.rsplit('.').next()?;
+    (!column.trim().is_empty()).then(|| column.trim().to_owned())
+}
+
 fn lookup_rows(raw_rows: Vec<Value>, fetcher_name: &str, display_field: &str) -> Arc<[LookupRow]> {
     raw_rows
         .iter()
@@ -573,6 +689,42 @@ fn write_lookup_table(
         sheet.write_string_with_format(r, name_col, &row.name, &cell_format)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::GeneratedEmailTemplateUsecase;
+
+    #[test]
+    fn resolves_generated_template_fields_from_import_config() {
+        let payload = json!({
+            "tenant_id": "tenant-id",
+            "import_config": {
+                "fetcher_caching": ["JOB_POSITION"],
+                "fields": [{
+                    "header": "Position Name*",
+                    "fetcher": "JOB_POSITION",
+                    "fetcher_field_key": "email",
+                    "is_cache": true,
+                    "select": "warehouse.ats_vacancy_temporary:job_position_meta.position_name",
+                    "template": {
+                        "value": null,
+                        "value_type": "select",
+                        "filter": []
+                    }
+                }]
+            }
+        });
+
+        let (headers, examples) =
+            GeneratedEmailTemplateUsecase::resolve_import_config_fields(&payload).unwrap();
+        assert_eq!(headers[0].header, "Position Name*");
+        assert_eq!(examples[0].fetcher.as_deref(), Some("JOB_POSITION"));
+        assert_eq!(examples[0].display_field.as_deref(), Some("email"));
+        assert!(examples[0].using_cache);
+    }
 }
 fn to_title_case(s: &str) -> String {
     s.split_whitespace()

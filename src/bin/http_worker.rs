@@ -6,9 +6,11 @@ use axum::Router;
 use tracing::debug;
 
 use worker_exporter::app_state::AppState;
+use worker_exporter::application::handler::aggregate_handler::AggregateHandler;
 use worker_exporter::application::handler::exporter_handler::ExportHandler;
 use worker_exporter::application::handler::import_handler::ImportHandler;
 use worker_exporter::application::handler::ingestion_handler::IngestionHandler;
+use worker_exporter::application::handler::rollback_handler::RollbackHandler;
 use worker_exporter::application::handler::sync_handler::SyncHandler;
 use worker_exporter::application::presentation::http::healthz_http::healthz_http;
 use worker_exporter::application::presentation::http::list_logging_http::{
@@ -16,6 +18,7 @@ use worker_exporter::application::presentation::http::list_logging_http::{
 };
 use worker_exporter::application::presentation::http::payload_generated_import_template::generated_import_template_http;
 use worker_exporter::application::presentation::http::post_detail_file_http::post_detail_file_http;
+use worker_exporter::application::presentation::http::rollback_http::rollback_http;
 use worker_exporter::application::presentation::http::test_import_http::test_import_http;
 use worker_exporter::boostrap::bootstrap;
 use worker_exporter::core::config::config::Config;
@@ -34,6 +37,7 @@ fn create_app(state: Arc<AppState>) -> Router {
         )
         .route("/generated-template", post(generated_import_template_http))
         .route("/test-import", post(test_import_http))
+        .route("/rollback", post(rollback_http))
         .with_state(state)
 }
 
@@ -44,6 +48,8 @@ async fn setup_stream_groups(state: &Arc<AppState>) -> Result<()> {
         ("stream:export", "export-group"),
         ("stream:import", "import-group"),
         ("stream:sync", "sync-group"),
+        ("stream:rollback", "rollback-group"),
+        ("stream:aggregate", "aggregate-group"),
     ];
 
     for (stream, group) in streams {
@@ -111,6 +117,20 @@ async fn start_workers(state: Arc<AppState>) -> Result<()> {
                 group: "sync-group".to_string(),
                 consumer_name: format!("sync-worker-{worker_number}"),
             });
+        let rollback_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+            Arc::new(RedisStreamConsumer {
+                client: manager.clone(),
+                stream_key: "stream:rollback".to_string(),
+                group: "rollback-group".to_string(),
+                consumer_name: format!("rollback-worker-{worker_number}"),
+            });
+        let aggregate_consumer: Arc<dyn Consumer<Message = ConsumerMessage> + Send + Sync> =
+            Arc::new(RedisStreamConsumer {
+                client: manager.clone(),
+                stream_key: "stream:aggregate".to_string(),
+                group: "aggregate-group".to_string(),
+                consumer_name: format!("aggregate-worker-{worker_number}"),
+            });
 
         let export_handler = ExportHandler {
             app_state: state.clone(),
@@ -123,6 +143,14 @@ async fn start_workers(state: Arc<AppState>) -> Result<()> {
         let sync_handler = SyncHandler {
             app_state: state.clone(),
             consumer: sync_consumer,
+        };
+        let rollback_handler = RollbackHandler {
+            app_state: state.clone(),
+            consumer: rollback_consumer,
+        };
+        let aggregate_handler = AggregateHandler {
+            app_state: state.clone(),
+            consumer: aggregate_consumer,
         };
 
         tokio::spawn(async move {
@@ -138,6 +166,16 @@ async fn start_workers(state: Arc<AppState>) -> Result<()> {
         tokio::spawn(async move {
             if let Err(error) = sync_handler.handler().await {
                 tracing::error!(?error, "sync worker crashed");
+            }
+        });
+        tokio::spawn(async move {
+            if let Err(error) = rollback_handler.handler().await {
+                tracing::error!(?error, "rollback worker crashed");
+            }
+        });
+        tokio::spawn(async move {
+            if let Err(error) = aggregate_handler.handler().await {
+                tracing::error!(?error, "aggregate worker crashed");
             }
         });
     }

@@ -52,6 +52,8 @@ pub struct LoggingFilterPayload {
 pub enum LoggingTypeFilter {
     Export,
     Import,
+    Rollback,
+    Aggregate,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,6 +120,8 @@ impl LoggingTypeFilter {
         match self {
             Self::Export => "EXPORT",
             Self::Import => "IMPORT",
+            Self::Rollback => "ROLLBACK",
+            Self::Aggregate => "AGGREGATE",
         }
     }
 }
@@ -280,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_only_export_or_import_logging_type_filter() {
+    fn accepts_supported_logging_type_filters() {
         let payload: PayloadLogging = serde_json::from_value(serde_json::json!({
             "_auth_context": {},
             "filter": { "loggingType": "IMPORT" }
@@ -289,6 +293,24 @@ mod tests {
         let filter: LoggingFilter = payload.filter.into();
 
         assert_eq!(filter.logging_type.as_deref(), Some("IMPORT"));
+        let rollback_filter: LoggingFilter =
+            serde_json::from_value::<PayloadLogging>(serde_json::json!({
+                "_auth_context": {},
+                "filter": { "loggingType": "ROLLBACK" }
+            }))
+            .unwrap()
+            .filter
+            .into();
+        assert_eq!(rollback_filter.logging_type.as_deref(), Some("ROLLBACK"));
+        let aggregate_filter: LoggingFilter =
+            serde_json::from_value::<PayloadLogging>(serde_json::json!({
+                "_auth_context": {},
+                "filter": { "loggingType": "AGGREGATE" }
+            }))
+            .unwrap()
+            .filter
+            .into();
+        assert_eq!(aggregate_filter.logging_type.as_deref(), Some("AGGREGATE"));
         assert!(serde_json::from_value::<PayloadLogging>(serde_json::json!({
             "_auth_context": {},
             "filter": { "loggingType": "SYNC" }

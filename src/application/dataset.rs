@@ -5,6 +5,7 @@ use crate::application::datasets::export::{
 };
 use crate::application::datasets::import::ats::ats_import_lsi_vacancy_dataset::AtsImportLsiVacancyDataset;
 use crate::application::datasets::import::ats::lsi_import_vacancy_v1::LsiImportVacancyV1;
+use crate::application::datasets::import::config_import_dataset::ConfigImportDataset;
 use crate::application::datasets::import::dynamci_dataset_v1::DynamicDatasetV1;
 use crate::application::datasets::import::dynamic_dataset::DynamicDataset;
 use crate::application::datasets::import::lsi_vacancy_sync_dataset::LsiVacancySyncDataset;
@@ -101,6 +102,12 @@ pub fn build_importer_dataset_registry_v1(
             Arc::new(DynamicDatasetV1::new(fetcher_registry.clone())),
         )
         .expect("error registrer ats import lsi vacancy dataset");
+    registry
+        .register(
+            "DYNAMIC_IMPORT_DATASET",
+            Arc::new(ConfigImportDataset::new(fetcher_registry.clone())),
+        )
+        .expect("register config-driven import dataset");
     registry
         .register(
             "LSI_IMPORT_VACANCY_V1",

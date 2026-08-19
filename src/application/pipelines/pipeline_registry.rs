@@ -14,10 +14,14 @@ pub type PipelineRegistry = Registry<dyn PipelineTrait>;
 pub fn build_pipeline_registry(
     // loader: Arc<LoadRegistry>,
     source: Arc<SourceRegistry>,
+    publisher: Arc<dyn crate::core::traits::publisher::Publisher>,
 ) -> PipelineRegistry {
     let mut registry = PipelineRegistry::new();
     registry
-        .register("ingestion", Arc::new(IngestionPipeline { source }))
+        .register(
+            "ingestion",
+            Arc::new(IngestionPipeline { source, publisher }),
+        )
         .expect("ingestion pipeline key must be unique");
     registry
 }

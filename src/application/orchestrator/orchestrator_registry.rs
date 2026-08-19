@@ -4,18 +4,22 @@ use moka::future::Cache;
 
 use crate::{
     application::{
+        aggregate_pipeline_registry::AggregatePipelineRegistry,
         dataset::{DatasetRegistry, ImporterDatasetRegistry, ImporterDatasetRegistryV1},
         fetch_source_regitry::DataFetcherJsonRegistry,
         grpcs::gprc::GrpcService,
-        import::import_registry::ImportLoaderRegistry,
         loader_registry::LoaderRegistry,
         orchestrator::{
+            aggregate_orchestrator::AggregateOrchestrator,
             dynamic_export_orchestrator::DynamicExportOrchestrator,
+            dynamic_import_orchestrator::DynamicImportOrchestrator,
             export_orchestrator::ExportOrchestrator, import_orchestrator::ImportOrchestrator,
-            ingestion_orchestrator::IngestionOrchestrator, sync_orchestrator::SyncOrchestrator,
+            ingestion_orchestrator::IngestionOrchestrator,
+            rollback_orchestrator::RollbackOrchestrator, sync_orchestrator::SyncOrchestrator,
         },
         pipelines::{
             pipeline_import_registry::PipelineImportRegistry, pipeline_registry::PipelineRegistry,
+            rollback_pipeline_registry::RollbackPipelineRegistry,
         },
         sync_aggregator_registry::SyncAggregatorRegistry,
         writter::WritterRegistry,
@@ -37,10 +41,11 @@ pub fn build_orchestrator_registry(
     imporer_dataset: Arc<ImporterDatasetRegistry>,
     import_pipeline: Arc<PipelineImportRegistry>,
     publisher: Arc<dyn Publisher>,
-    import_registry: Arc<ImportLoaderRegistry>,
     import_dataset_registry_v1: Arc<ImporterDatasetRegistryV1>,
     fetcher_registry: Arc<DataFetcherJsonRegistry>,
     sync_aggregator: Arc<SyncAggregatorRegistry>,
+    rollback_pipeline: Arc<RollbackPipelineRegistry>,
+    aggregate_pipelines: Arc<AggregatePipelineRegistry>,
 ) -> OrchestratorRegistry {
     let mut registry = OrchestratorRegistry::new();
     // for caching data
@@ -48,19 +53,24 @@ pub fn build_orchestrator_registry(
         .time_to_live(Duration::from_mins(30))
         .max_capacity(5000)
         .build();
+    let import_orchestrator = Arc::new(ImportOrchestrator {
+        grpc_service: grpc_service.clone(),
+        imporer_dataset,
+        import_pipeline,
+        logging: logging.clone(),
+        import_datasetV1: import_dataset_registry_v1.clone(),
+        local_cache: moka_config,
+        fetcher: fetcher_registry.clone(),
+        publisher: publisher.clone(),
+    });
+    registry
+        .register("IMPORT", import_orchestrator.clone())
+        .ok();
     registry
         .register(
-            "IMPORT",
-            Arc::new(ImportOrchestrator {
-                grpc_service: grpc_service.clone(),
-                imporer_dataset,
-                import_pipeline,
-                logging: logging.clone(),
-                import_load_registry: import_registry.clone(),
-                import_datasetV1: import_dataset_registry_v1.clone(),
-                local_cache: moka_config,
-                fetcher: fetcher_registry.clone(),
-                publisher: publisher.clone(),
+            "DYNAMIC_IMPORT",
+            Arc::new(DynamicImportOrchestrator {
+                import: import_orchestrator,
             }),
         )
         .ok();
@@ -71,7 +81,7 @@ pub fn build_orchestrator_registry(
         logging: logging.clone(),
         dataset,
         grpc_service,
-        publisher,
+        publisher: publisher.clone(),
     });
     registry
         .register("EXPORT", export_orchestrator.clone())
@@ -89,7 +99,25 @@ pub fn build_orchestrator_registry(
             "SYNC",
             Arc::new(SyncOrchestrator {
                 sync_aggregator,
-                logging,
+                logging: logging.clone(),
+            }),
+        )
+        .ok();
+    registry
+        .register(
+            "ROLLBACK",
+            Arc::new(RollbackOrchestrator {
+                pipeline: rollback_pipeline,
+                logging: logging.clone(),
+            }),
+        )
+        .ok();
+    registry
+        .register(
+            "AGGREGATE",
+            Arc::new(AggregateOrchestrator {
+                pipelines: aggregate_pipelines,
+                logging: logging.clone(),
             }),
         )
         .ok();

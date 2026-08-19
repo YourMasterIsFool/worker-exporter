@@ -2,6 +2,7 @@ use tokio::net::unix::pipe;
 use tracing::error;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use crate::application::aggregate_pipeline_registry::build_aggregate_pipeline_registry;
 use crate::application::bulk_loader_registry::build_bulk_loader_registry;
 use crate::application::dataset::{
     build_importer_dataset_registry, build_importer_dataset_registry_v1,
@@ -15,6 +16,8 @@ use crate::application::loader_registry::{self, build_loader_registry};
 use crate::application::pipelines::pipeline_import_registry::{
     self, build_pipeline_import_registry,
 };
+use crate::application::pipelines::rollback_pipeline_registry::build_rollback_pipeline_registry;
+use crate::application::rollback_loader_registry::build_rollback_loader_registry;
 use crate::application::sync_aggregator_registry::build_sync_aggregator_registry;
 use crate::infrastructure::db::warehouse_client::WarehouseClient;
 use crate::infrastructure::loader;
@@ -98,6 +101,13 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
 
     let loader_registry = Arc::new(build_loader_registry(database_infra_manager.clone()));
     let bulk_loader_registry = Arc::new(build_bulk_loader_registry(ats_client.clone()));
+    let rollback_loader_registry = Arc::new(build_rollback_loader_registry());
+    let rollback_pipeline_registry = Arc::new(build_rollback_pipeline_registry(
+        rollback_loader_registry,
+        ats_client.clone(),
+    ));
+    let aggregate_pipeline_registry =
+        Arc::new(build_aggregate_pipeline_registry(ats_client.clone()));
     // 4. source registry
     let source_registry = Arc::new(build_source_registry(
         organization_client.clone(),
@@ -109,6 +119,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
     let pipeline_registry = Arc::new(build_pipeline_registry(
         // incremental_load_registry.clone(),
         source_registry.clone(),
+        redis_publisher.clone(),
     ));
     let data_fetcher_registry = Arc::new(build_data_fetcher_json_registry(
         database_infra_manager.clone(),
@@ -150,8 +161,7 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
 
     let importer_load_registry =
         Arc::new(build_import_loader_registry(database_infra_manager.clone()));
-    let pipeline_import_registry =
-        Arc::new(build_pipeline_import_registry(loader_registry.clone()));
+    let pipeline_import_registry = Arc::new(build_pipeline_import_registry(importer_load_registry));
     let orchestrator = Arc::new(build_orchestrator_registry(
         writter_registry.clone(),
         pipeline_registry.clone(),
@@ -162,10 +172,11 @@ pub async fn bootstrap() -> anyhow::Result<Arc<AppState>> {
         importer_registry.clone(),
         pipeline_import_registry.clone(),
         redis_publisher.clone(),
-        importer_load_registry.clone(),
         import_dataset_v1_registry.clone(),
         data_fetcher_registry.clone(),
         sync_aggregator_registry.clone(),
+        rollback_pipeline_registry,
+        aggregate_pipeline_registry,
     ));
 
     // repo
@@ -211,6 +222,8 @@ async fn setup_stream_groups(manager: Arc<ConnectionManager>) -> anyhow::Result<
         ("stream:export", "export-group"),
         ("stream:import", "import-group"),
         ("stream:sync", "sync-group"),
+        ("stream:rollback", "rollback-group"),
+        ("stream:aggregate", "aggregate-group"),
     ];
 
     for (stream, group) in streams {

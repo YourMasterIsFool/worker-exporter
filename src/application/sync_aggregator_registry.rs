@@ -5,6 +5,7 @@ use crate::{
         bulk_loader_registry::BulkLoaderRegistry, dataset::SyncDatasetRegistry,
         ingestion::source_registry::SourceRegistry,
         sync::ats::vacancy::AtsVacancyAtsSyncAggregator,
+        sync::config_sync_pipeline::ConfigSyncPipeline,
     },
     core::traits::{load::SyncAggregator, strategy::registry::Registry},
     domain::logging::repo::LoggingRepo,
@@ -30,15 +31,27 @@ pub fn build_sync_aggregator_registry(
         .register(
             "LSI_VACANCY_SYNC",
             Arc::new(AtsVacancyAtsSyncAggregator {
+                source: source_registry.clone(),
+                dataset: sync_dataset.clone(),
+                bulk_loader: bulk_loader.clone(),
+                ats_client: ats_client.clone(),
+                logging: logging.clone(),
+                import_logging,
+            }),
+        )
+        .expect("error register lsi vacancy sync aggregator");
+    registry
+        .register(
+            "CONFIG_SYNC_PIPELINE",
+            Arc::new(ConfigSyncPipeline {
                 source: source_registry,
                 dataset: sync_dataset,
                 bulk_loader,
                 ats_client,
                 logging,
-                import_logging,
             }),
         )
-        .expect("error register lsi vacancy sync aggregator");
+        .expect("register config sync pipeline");
 
     registry
 }

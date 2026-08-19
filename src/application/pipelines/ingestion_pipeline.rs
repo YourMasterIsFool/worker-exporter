@@ -5,11 +5,12 @@ use uuid::Uuid;
 
 use crate::{
     application::ingestion::source_registry::SourceRegistry,
-    core::traits::pipeline::pipeline_trait::PipelineTrait,
+    core::traits::{pipeline::pipeline_trait::PipelineTrait, publisher::Publisher},
 };
 
 pub struct IngestionPipeline {
     pub source: Arc<SourceRegistry>,
+    pub publisher: Arc<dyn Publisher>,
 }
 
 #[async_trait::async_trait]
@@ -38,5 +39,27 @@ impl PipelineTrait for IngestionPipeline {
             .get(source)?
             .count_updated_after(updated_after)
             .await
+    }
+
+    async fn after_load(&self, loader: &str) -> Result<()> {
+        if loader == "OLAP_ATS_VACANCY_DIMENSION" {
+            self.publisher
+                .publish(
+                    "stream:aggregate",
+                    serde_json::json!({
+                        "tenant_id": "GLOBAL",
+                        "email": "system@worker",
+                        "actor_id": "system",
+                        "orchestrator_name": "AGGREGATE",
+                        "aggregate_config": {
+                            "pipeline": "VACANCY_AGGREGATE",
+                            "aggregate_code": "VACANCY_TOTAL",
+                            "scope_key": "GLOBAL"
+                        }
+                    }),
+                )
+                .await?;
+        }
+        Ok(())
     }
 }

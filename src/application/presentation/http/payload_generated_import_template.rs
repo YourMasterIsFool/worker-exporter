@@ -11,6 +11,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
@@ -23,14 +24,23 @@ pub struct PayloadGeneratedImportTemplate {
 
 pub async fn generated_import_template_http(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<PayloadGeneratedImportTemplate>,
+    Json(payload): Json<Value>,
 ) -> impl IntoResponse {
     let usecases = state.usecases.clone();
     let usecase = usecases.generated_email_template_usecase.clone();
 
-    let result = usecase
-        .execute(&payload.headers, &payload.example_value, payload.payload)
-        .await;
+    let result = if payload.get("import_config").is_some() {
+        usecase.execute_from_import_config(payload).await
+    } else {
+        match serde_json::from_value::<PayloadGeneratedImportTemplate>(payload) {
+            Ok(payload) => {
+                usecase
+                    .execute(&payload.headers, &payload.example_value, payload.payload)
+                    .await
+            }
+            Err(error) => Err(anyhow::anyhow!(error.to_string())),
+        }
+    };
 
     match result {
         Ok(bytes) => Response::builder()

@@ -59,12 +59,18 @@ pub async fn consumer_handler(
             // dan akan memunculkan log lalu consumer di ack
 
             if let Some(job) = job {
-                let resolved_orchestrator =
-                    if orchestrator_type == "EXPORT" && job.dynamic_export_config.is_some() {
-                        "DYNAMIC_EXPORT"
-                    } else {
-                        orchestrator_type
-                    };
+                let resolved_orchestrator = match orchestrator_type {
+                    "EXPORT" if job.dynamic_export_config.is_some() => "DYNAMIC_EXPORT",
+                    "IMPORT"
+                        if job
+                            .import_config
+                            .as_ref()
+                            .is_some_and(|config| config.dataset == "DYNAMIC_IMPORT_DATASET") =>
+                    {
+                        "DYNAMIC_IMPORT"
+                    }
+                    _ => orchestrator_type,
+                };
                 match build_orchestrator(
                     resolved_orchestrator,
                     &job,

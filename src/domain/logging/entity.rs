@@ -104,6 +104,8 @@ pub enum LoggingType {
     Export,
     Import,
     Sync,
+    Rollback,
+    Aggregate,
 }
 
 impl LoggingType {
@@ -113,6 +115,8 @@ impl LoggingType {
             LoggingType::Export => "EXPORT".into(),
             LoggingType::Import => "IMPORT".into(),
             LoggingType::Sync => "SYNC".into(),
+            LoggingType::Rollback => "ROLLBACK".into(),
+            LoggingType::Aggregate => "AGGREGATE".into(),
         }
     }
 }

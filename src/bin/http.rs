@@ -9,6 +9,7 @@ use worker_exporter::application::presentation::http::list_logging_http::{
 };
 use worker_exporter::application::presentation::http::payload_generated_import_template::generated_import_template_http;
 use worker_exporter::application::presentation::http::post_detail_file_http::post_detail_file_http;
+use worker_exporter::application::presentation::http::rollback_http::rollback_http;
 
 use worker_exporter::application::presentation::http::test_import_http::test_import_http;
 use worker_exporter::{app_state::AppState, boostrap, core::config::config::Config};
@@ -40,6 +41,7 @@ fn create_app(state: Arc<AppState>) -> Router {
         )
         .route("/generated-template", post(generated_import_template_http))
         .route("/test-import", post(test_import_http))
+        .route("/rollback", post(rollback_http))
         .with_state(state) // Axum sekarang membagikan Arc<AppState> yang cocok dengan handler
 }
 
