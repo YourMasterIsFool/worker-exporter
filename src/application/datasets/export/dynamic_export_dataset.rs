@@ -362,15 +362,31 @@ impl DynamicExportDataset {
                 .get(*key)
                 .map(|value| Self::path_value(value, rest))
                 .unwrap_or(Value::Null),
+            Value::String(raw) => serde_json::from_str::<Value>(raw)
+                .ok()
+                .map(|value| Self::path_value(&value, path))
+                .unwrap_or(Value::Null),
             _ => Value::Null,
         }
     }
 
-    fn path_values(value: &Value, path: &str) -> Vec<String> {
-        match Self::path(value, path) {
-            Value::Array(values) => values.iter().filter_map(Self::scalar).collect(),
-            value => Self::scalar(&value).into_iter().collect(),
+    fn scalar_values(value: &Value) -> Vec<String> {
+        match value {
+            Value::Array(values) => values.iter().flat_map(Self::scalar_values).collect(),
+            value => Self::scalar(value).into_iter().collect(),
         }
+    }
+
+    fn normalized_key(value: &str) -> String {
+        value
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .flat_map(char::to_lowercase)
+            .collect()
+    }
+
+    fn path_values(value: &Value, path: &str) -> Vec<String> {
+        Self::scalar_values(&Self::path(value, path))
     }
 
     fn local_keys(rows: &[Value], local_key: &str) -> HashSet<String> {
@@ -379,14 +395,73 @@ impl DynamicExportDataset {
             .collect()
     }
 
+    fn custom_json_value(value: Value, key: &str) -> Value {
+        let value = match value {
+            Value::String(raw) => serde_json::from_str(&raw).unwrap_or(Value::String(raw)),
+            value => value,
+        };
+
+        value.get(key).cloned().unwrap_or(Value::Null)
+    }
+
+    fn option_texts(row: &Value, value: Value, relation: &str) -> Value {
+        if value.is_null() {
+            return Value::Null;
+        }
+        let options = row
+            .get(relation)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let values = match value {
+            Value::Array(values) => values,
+            value => vec![value],
+        };
+        Value::Array(
+            values
+                .into_iter()
+                .map(|value| {
+                    let id = Self::scalar(&value).unwrap_or_default();
+                    options
+                        .iter()
+                        .find(|option| {
+                            option
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .is_some_and(|option_id| option_id == id)
+                        })
+                        .and_then(|option| option.get("option_text"))
+                        .cloned()
+                        .unwrap_or(Value::String(id))
+                })
+                .collect(),
+        )
+    }
+
+    fn question_matches(row: &Value, question_id: &str, question_text: &str) -> bool {
+        row.get("form_questions")
+            .and_then(Value::as_array)
+            .is_some_and(|questions| {
+                questions.iter().any(|question| {
+                    question
+                        .get("id")
+                        .and_then(Self::scalar)
+                        .is_some_and(|id| id == question_id)
+                        && question
+                            .get("question_text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|text| {
+                                Self::normalized_key(text) == Self::normalized_key(question_text)
+                            })
+                })
+            })
+    }
+
     fn custom_value(
         row: &Value,
         field: &ExporterColumn,
         relation: &DynamicExportRelation,
     ) -> Value {
-        let Some(custom_key) = field.custom_key.as_deref() else {
-            return Value::Null;
-        };
         let field_key_column = relation.field_key_column.as_deref().unwrap_or("field_key");
         let field_type_column = relation
             .field_type_column
@@ -398,10 +473,14 @@ impl DynamicExportDataset {
             .into_iter()
             .flatten()
             .filter(|custom| {
-                custom
-                    .get(field_key_column)
-                    .and_then(Value::as_str)
-                    .is_some_and(|key| key.trim() == custom_key.trim())
+                let key = custom.get(field_key_column).and_then(Value::as_str);
+                field.custom_key.as_deref().is_some_and(|custom_key| {
+                    key.is_some_and(|key| {
+                        Self::normalized_key(key) == Self::normalized_key(custom_key)
+                    }) || key.is_some_and(|question_id| {
+                        Self::question_matches(row, question_id, custom_key)
+                    })
+                })
             })
             .filter_map(|custom| {
                 let field_type = custom
@@ -420,7 +499,20 @@ impl DynamicExportDataset {
                         "DATE" => "value_date",
                         _ => "value_text",
                     });
-                custom.get(column).cloned()
+                let column = field
+                    .custom_json_key
+                    .as_ref()
+                    .map(|key| key.column.as_str())
+                    .unwrap_or(column);
+                let value = custom.get(column).cloned()?;
+                let value = field.custom_json_key.as_ref().map_or(value.clone(), |key| {
+                    let value = Self::custom_json_value(value, &key.value);
+                    key.options_relation
+                        .as_deref()
+                        .map(|relation| Self::option_texts(row, value.clone(), relation))
+                        .unwrap_or(value)
+                });
+                Some(value)
             })
             .collect::<Vec<_>>();
         Value::Array(values)
@@ -520,6 +612,67 @@ mod tests {
         );
 
         assert!(keys.contains("vacancy-1"));
+    }
+
+    #[test]
+    fn custom_json_key_extracts_nested_value() {
+        assert_eq!(
+            DynamicExportDataset::custom_json_value(
+                json!(r#"{"number_value":60}"#),
+                "number_value",
+            ),
+            json!(60)
+        );
+        assert_eq!(
+            DynamicExportDataset::option_texts(
+                &json!({
+                    "options": [
+                        {"id": "uuid1", "option_text": "GET"},
+                        {"id": "uuid2", "option_text": "POST"}
+                    ]
+                }),
+                json!(["uuid1", "uuid2"]),
+                "options",
+            ),
+            json!(["GET", "POST"])
+        );
+        assert_eq!(
+            DynamicExportDataset::local_keys(
+                &[json!({
+                    "form_answers": [{
+                        "answer_value": "{\"selected_options\":[\"uuid1\",\"uuid2\"]}"
+                    }]
+                })],
+                "form_answers.answer_value.selected_options",
+            ),
+            ["uuid1".to_string(), "uuid2".to_string()]
+                .into_iter()
+                .collect()
+        );
+    }
+
+    #[test]
+    fn question_text_matches_form_question_id() {
+        assert!(DynamicExportDataset::question_matches(
+            &json!({
+                "form_questions": [{
+                    "id": "question-1",
+                    "question_text": "Nama\nPerusahaan/Organisasi Anda"
+                }]
+            }),
+            "question-1",
+            "nama perusahaan / organisasi anda",
+        ));
+        assert!(!DynamicExportDataset::question_matches(
+            &json!({
+                "form_questions": [{
+                    "id": "question-1",
+                    "question_text": "Jabatan Anda"
+                }]
+            }),
+            "question-1",
+            "Nama Perusahaan/Organisasi Anda",
+        ));
     }
 }
 

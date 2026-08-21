@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::JsonValue, FromRow, Postgres, QueryBuilder};
 use tracing::debug;
@@ -25,9 +25,9 @@ use uuid::Uuid;
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct AtsApplicantBucketModel {
     pub id: Uuid,
-    pub updated_at: NaiveDateTime,
-    pub created_at: NaiveDateTime,
-    pub deleted_at: Option<NaiveDateTime>,
+    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
     pub tenant_id: Uuid,
     pub group_id: Uuid,
     pub candidate_id: Uuid,

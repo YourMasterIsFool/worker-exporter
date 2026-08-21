@@ -4,6 +4,14 @@ use serde::{Deserialize, Serialize};
 use crate::core::types::ValidationConfig;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CustomJsonKey {
+    pub column: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options_relation: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterColumn {
     pub name: String,
     #[serde(default)]
@@ -26,6 +34,8 @@ pub struct ExporterColumn {
     pub transform: Option<String>,
     #[serde(default, rename = "default")]
     pub default_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_json_key: Option<CustomJsonKey>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExporterConfig {

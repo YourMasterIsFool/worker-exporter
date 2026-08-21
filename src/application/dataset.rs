@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::application::datasets::export::{
     ats::{
-        lsi_candidate_dataset::LsiCandidateDataset,
+        applicant_dataset::ApplicantDataset, lsi_candidate_dataset::LsiCandidateDataset,
         lsi_reference_check_dataset::LsiReferenceCheckDataset,
     },
     dynamic_export_dataset::DynamicExportDataset,
@@ -70,6 +70,19 @@ pub fn build_dataset_registry(
             )),
         )
         .expect("register dynamic export dataset");
+    registry
+        .register(
+            "APPLICANT_DATASET",
+            Arc::new(ApplicantDataset {
+                source: source_registry,
+                fetcher: data_fetcher_registry,
+                export_cache: Arc::new(tokio::sync::RwLock::new(None)),
+                cached_fetchers: Arc::new(tokio::sync::RwLock::new(
+                    std::collections::HashSet::new(),
+                )),
+            }),
+        )
+        .expect("register applicant dataset");
 
     registry
 }
