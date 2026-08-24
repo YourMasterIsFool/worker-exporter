@@ -184,8 +184,10 @@ impl Orchestrator for ExportOrchestrator {
             let format = config.format.as_str();
             let format_file = match format {
                 "csv" => "csv",
-                "excel" => "xlsx",
-                _ => anyhow::bail!("format must match a writer registry key: csv or excel"),
+                "excel" | "excel_rs" => "xlsx",
+                _ => anyhow::bail!(
+                    "format must match a writer registry key: csv, excel, or excel_rs"
+                ),
             };
 
             let mut writter = self.writter.get(&format)?;

@@ -5,7 +5,10 @@ use tracing::warn;
 
 use crate::{
     core::traits::writter::writter_trait::WritterTrait,
-    infrastructure::exporter::{csv_exporter::CsvExporter, excel_exporter::ExcelExporter},
+    infrastructure::exporter::{
+        csv_exporter::CsvExporter, excel_exporter::ExcelExporter,
+        excel_exporter_rs::ExcelExporterRs,
+    },
 };
 
 pub type WritterFactory = Box<dyn Fn() -> Box<dyn WritterTrait> + Send + Sync>;
@@ -53,5 +56,8 @@ pub fn build_writter_registry() -> WritterRegistry {
     registry
         .register("excel", || Box::new(ExcelExporter::new()))
         .expect("failed registry excel");
+    registry
+        .register("excel_rs", || Box::new(ExcelExporterRs::new()))
+        .expect("failed registry excel_rs");
     registry
 }

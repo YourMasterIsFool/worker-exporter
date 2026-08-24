@@ -75,11 +75,77 @@ Untuk form answer, `custom_key` dinormalisasi menjadi lowercase dan semua whites
 - `local_key`: path key pada row saat ini.
 - `foreign_key`: kolom yang dicari pada source relation.
 - `depends_on`: relation yang harus selesai lebih dulu.
+- `filter_source`: jika `true`, relation dipakai untuk menyaring row source utama
+  dengan correlated `EXISTS`.
+- `filter_fields`: nama filter payload yang diarahkan ke relation ini. Filter yang
+  tidak terdaftar tetap diarahkan ke source utama.
 - `cardinality: "one"`: ambil satu row.
 - `cardinality: "many"`: ambil array.
 - `order_by`: sorting sebelum memilih row pertama. Gunakan `created_at DESC` untuk applicant bucket terbaru.
 - `is_custom`: aktifkan resolver EAV.
 - `value_columns`: mapping tipe EAV ke kolom nilai.
+
+### Routing filter source dan relation
+
+`filters` tetap dikirim pada root payload, bukan di dalam `dynamic_export_config`.
+Worker menerapkan `tenant_id` ke source utama dan ke relation `filter_source`.
+Filter lain diarahkan berdasarkan `filter_fields`:
+
+```text
+tenant_id         -> source utama dan filter relation
+candidate_id      -> reference_checks
+created_at        -> reference_checks jika terdaftar di filter_fields
+submission_status -> reference_check_referees jika tidak terdaftar di relation
+```
+
+Contoh source referee dengan parent reference check:
+
+```json
+{
+  "source": {
+    "database": "ats",
+    "schema": "process",
+    "table": "reference_check_referees",
+    "tenant_field": "tenant_id",
+    "cursor": {"column": "id", "direction": "asc"}
+  },
+  "relations": [
+    {
+      "name": "reference_check",
+      "filter_source": true,
+      "filter_fields": ["candidate_id", "created_at"],
+      "source": {
+        "database": "ats",
+        "schema": "process",
+        "table": "reference_checks",
+        "where_fields": [
+          {"field": "deleted_at", "operator": "IS NULL"}
+        ]
+      },
+      "local_key": "reference_check_id",
+      "foreign_key": "id",
+      "cardinality": "one"
+    }
+  ]
+}
+```
+
+Payload filter tetap berada di root:
+
+```json
+{
+  "tenant_id": "TENANT_UUID",
+  "filters": [
+    {"field": "candidate_id", "operator": "=", "value": "CANDIDATE_UUID"},
+    {"field": "created_at", "operator": ">=", "value": "2026-08-01 00:00:00"}
+  ]
+}
+```
+
+Dengan konfigurasi tersebut, loop tetap membaca `reference_check_referees`,
+sedangkan filter parent diterapkan melalui query `EXISTS` ke `reference_checks`.
+Jika satu field ada di source dan relation, masukkan field itu ke `filter_fields`
+relation hanya ketika filter tersebut memang dimaksudkan untuk relation.
 
 ### Form answer dan option
 
@@ -799,7 +865,7 @@ Kode bergantung pada trait dari `core`; implementasi teknis ditempatkan di `infr
 | Registry | Contoh key aktif | Dipakai oleh |
 | --- | --- | --- |
 | Orchestrator | `IMPORT`, `EXPORT`, `SYNC`, `ROLLBACK`, `AGGREGATE` | Handler berdasarkan stream. |
-| Writer | `csv`, `excel` | `export_config.format`. |
+| Writer | `csv`, `excel`, `excel_rs` | `export_config.format`. `excel` memakai writer lama; `excel_rs` memakai `rust_xlsxwriter`. Keduanya menghasilkan `.xlsx`. |
 | Export dataset | `lsi_ats_candidate_dataset`, `lsi_applicant_dataset`, `lsi_reference_check_dataset` | `export_config.dataset`. |
 | Import dataset v1 | `DYNAMIC_DATASET_V1`, `LSI_IMPORT_VACANCY_V1` | `import_config.dataset`. |
 | Import loader | `WAREHOUSE_ATS_VACANCY_TEMPORARY`, `WAREHOUSE_DYNAMIC_TEMPORARY_LOADER` | `import_config.loader`. |
@@ -1108,7 +1174,7 @@ Folder ini mengatur use case tanpa menjadi pemilik implementasi akses teknologi 
 | `datasets/` | Implementasi dataset export, import, dan sync; termasuk mapper reusable yang memakai `src/utils/`. |
 | `dataset.rs` | Pendaftaran export dataset, import dataset, dan sync dataset. |
 | `fetch_source_regitry.rs` | Pendaftaran fetcher JSON yang dipakai untuk lookup/mapping import. |
-| `writter.rs` | Factory writer `csv` dan `excel`. Ejaan `writter` mengikuti kode saat ini. |
+| `writter.rs` | Factory writer `csv`, `excel`, dan `excel_rs`. Ejaan `writter` mengikuti kode saat ini. |
 | `import/` | Pendaftaran loader temporary warehouse untuk import. |
 | `sync/ats/` | Aggregator SYNC spesifik ATS vacancy. |
 | `presentation/http/` | Handler Axum untuk endpoint yang diekspos HTTP. |
@@ -1213,7 +1279,7 @@ mengirim event email.
 | Field | Wajib | Arti dan perilaku aktual |
 | --- | --- | --- |
 | `dataset` | Ya | Key export dataset. Saat ini: `lsi_ats_candidate_dataset`, `lsi_applicant_dataset`, `lsi_reference_check_dataset`, atau alias `APPLICANT_DATASET`. Key yang tidak terdaftar membuat job gagal. |
-| `format` | Ya | Writer yang dipakai: `csv` atau `excel`. `excel` menghasilkan ekstensi `.xlsx`. |
+| `format` | Ya | Writer yang dipakai: `csv`, `excel`, atau `excel_rs`. `excel` dan `excel_rs` menghasilkan ekstensi `.xlsx`. |
 | `fields` | Ya | Daftar kolom keluaran, dalam urutan yang sama dengan berkas export. |
 | `template_code` | Ya | Kode template email. Struct meminta field ini meskipun email dimatikan. |
 | `structure_template_code` | Ya | Kode struktur template email; juga tetap wajib di payload. |
@@ -1882,7 +1948,7 @@ Nama field adalah `permissions_key` (jamak) pada root job, sementara di `import_
 
 Kirim payload berikut ke `stream:export`. Dataset yang terdaftar saat ini mencakup
 `lsi_ats_candidate_dataset`, `lsi_applicant_dataset`, dan `lsi_reference_check_dataset`; format
-tersedia `csv` dan `excel`. Lihat [reference check dan operasi](ARCHITECTURE.md#source-reference-check-and-operations)
+tersedia `csv`, `excel`, dan `excel_rs`. Lihat [reference check dan operasi](ARCHITECTURE.md#source-reference-check-and-operations)
 untuk daftar header reference check.
 
 ```json
