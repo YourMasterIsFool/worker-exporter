@@ -79,6 +79,10 @@ pub struct DynamicExportRelation {
     pub name: String,
     #[serde(default)]
     pub depends_on: Option<String>,
+    #[serde(default)]
+    pub filter_source: bool,
+    #[serde(default)]
+    pub filter_fields: Vec<String>,
     pub source: DynamicExportSource,
     pub local_key: String,
     pub foreign_key: String,

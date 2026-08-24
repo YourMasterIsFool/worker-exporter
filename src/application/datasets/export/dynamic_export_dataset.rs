@@ -169,7 +169,9 @@ impl DynamicExportDataset {
     async fn fetch_source(
         &self,
         source: &DynamicExportSource,
-        filters: &[WhereField],
+        source_filters: &[WhereField],
+        relation_filters: &[WhereField],
+        relations: &[DynamicExportRelation],
         after: Option<&str>,
         limit: i64,
     ) -> anyhow::Result<Vec<Value>> {
@@ -182,7 +184,8 @@ impl DynamicExportDataset {
         let mut query =
             QueryBuilder::<Postgres>::new(format!("SELECT to_jsonb(t) FROM {table} t WHERE 1=1"));
         Self::append_filters(&mut query, &source.where_fields, "t")?;
-        Self::append_filters(&mut query, filters, "t")?;
+        Self::append_filters(&mut query, source_filters, "t")?;
+        Self::append_source_relation_filters(&mut query, source, relations, relation_filters)?;
         let direction = match cursor.direction.to_ascii_lowercase().as_str() {
             "asc" => "ASC",
             "desc" => "DESC",
@@ -215,17 +218,82 @@ impl DynamicExportDataset {
     async fn count_source(
         &self,
         source: &DynamicExportSource,
-        filters: &[WhereField],
+        source_filters: &[WhereField],
+        relation_filters: &[WhereField],
+        relations: &[DynamicExportRelation],
     ) -> anyhow::Result<i64> {
         let table = Self::table(source)?;
         let mut query =
             QueryBuilder::<Postgres>::new(format!("SELECT COUNT(*) FROM {table} t WHERE 1=1"));
         Self::append_filters(&mut query, &source.where_fields, "t")?;
-        Self::append_filters(&mut query, filters, "t")?;
+        Self::append_filters(&mut query, source_filters, "t")?;
+        Self::append_source_relation_filters(&mut query, source, relations, relation_filters)?;
         Ok(query
             .build_query_scalar::<i64>()
             .fetch_one(self.pool(&source.database)?)
             .await?)
+    }
+
+    fn append_source_relation_filters(
+        query: &mut QueryBuilder<'_, Postgres>,
+        source: &DynamicExportSource,
+        relations: &[DynamicExportRelation],
+        filters: &[WhereField],
+    ) -> anyhow::Result<()> {
+        for relation in relations.iter().filter(|relation| relation.filter_source) {
+            if relation.source.database != source.database {
+                bail!("source relation filter must use the same database as source");
+            }
+            let table = Self::table(&relation.source)?;
+            let local_key = Self::identifier(&relation.local_key)?;
+            let foreign_key = Self::identifier(&relation.foreign_key)?;
+            query
+                .push(" AND EXISTS (SELECT 1 FROM ")
+                .push(table)
+                .push(" r WHERE r.")
+                .push(foreign_key)
+                .push(" = t.")
+                .push(local_key);
+            Self::append_filters(query, &relation.source.where_fields, "r")?;
+            let tenant_field = source.tenant_field.as_deref().unwrap_or("tenant_id");
+            let relation_filters = filters
+                .iter()
+                .filter(|filter| {
+                    let field = filter.field.rsplit('.').next().unwrap_or(&filter.field);
+                    field == tenant_field || relation.filter_fields.iter().any(|name| name == field)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            Self::append_filters(query, &relation_filters, "r")?;
+            query.push(")");
+        }
+        Ok(())
+    }
+
+    fn split_filter_targets(
+        source: &DynamicExportSource,
+        filters: &[WhereField],
+        relations: &[DynamicExportRelation],
+    ) -> (Vec<WhereField>, Vec<WhereField>) {
+        if !relations.iter().any(|relation| relation.filter_source) {
+            return (filters.to_vec(), Vec::new());
+        }
+
+        let tenant_field = source.tenant_field.as_deref().unwrap_or("tenant_id");
+        let source_filters = filters
+            .iter()
+            .filter(|filter| {
+                let field = filter.field.rsplit('.').next().unwrap_or(&filter.field);
+                field == tenant_field
+                    || !relations.iter().any(|relation| {
+                        relation.filter_source
+                            && relation.filter_fields.iter().any(|name| name == field)
+                    })
+            })
+            .cloned()
+            .collect();
+
+        (source_filters, filters.to_vec())
     }
 
     async fn load_relation(
@@ -600,6 +668,11 @@ impl DynamicExportDataset {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::{
+        traits::orchestrator::{DynamicExportRelation, DynamicExportSource},
+        types::WhereField,
+    };
+
     use serde_json::json;
 
     use super::DynamicExportDataset;
@@ -612,6 +685,58 @@ mod tests {
         );
 
         assert!(keys.contains("vacancy-1"));
+    }
+
+    #[test]
+    fn routes_non_tenant_filters_to_filter_source() {
+        let source = DynamicExportSource {
+            database: "ats".into(),
+            schema: "process".into(),
+            table: "reference_check_referees".into(),
+            cursor: None,
+            tenant_field: Some("tenant_id".into()),
+            tenant_operator: None,
+            where_fields: vec![],
+        };
+        let relation = DynamicExportRelation {
+            name: "reference_check".into(),
+            depends_on: None,
+            filter_source: true,
+            filter_fields: vec!["candidate_id".into()],
+            source: source.clone(),
+            local_key: "reference_check_id".into(),
+            foreign_key: "id".into(),
+            cardinality: "one".into(),
+            is_custom: false,
+            is_cache: false,
+            field_key_column: None,
+            field_type_column: None,
+            value_columns: None,
+            order_by: None,
+        };
+        let filters = vec![
+            WhereField {
+                field: "tenant_id".into(),
+                operator: "=".into(),
+                value: Some("tenant".into()),
+                values: None,
+                casting: None,
+            },
+            WhereField {
+                field: "candidate_id".into(),
+                operator: "=".into(),
+                value: Some("candidate".into()),
+                values: None,
+                casting: None,
+            },
+        ];
+
+        let (source_filters, relation_filters) =
+            DynamicExportDataset::split_filter_targets(&source, &filters, &[relation]);
+
+        assert_eq!(source_filters.len(), 1);
+        assert_eq!(source_filters[0].field, "tenant_id");
+        assert_eq!(relation_filters.len(), 2);
     }
 
     #[test]
@@ -702,8 +827,17 @@ impl Dataset for DynamicExportDataset {
             LoadEnum::Select(filters, _) => filters.clone().unwrap_or_default(),
             _ => vec![],
         };
+        let (source_filters, relation_filters) =
+            Self::split_filter_targets(&config.source, &filters, &config.relations);
         let rows = self
-            .fetch_source(&config.source, &filters, cursor.as_deref(), limit)
+            .fetch_source(
+                &config.source,
+                &source_filters,
+                &relation_filters,
+                &config.relations,
+                cursor.as_deref(),
+                limit,
+            )
             .await?;
         let cursor_column = &config
             .source
@@ -754,6 +888,14 @@ impl Dataset for DynamicExportDataset {
             LoadEnum::Select(filters, _) => filters.clone().unwrap_or_default(),
             _ => vec![],
         };
-        self.count_source(&config.source, &filters).await
+        let (source_filters, relation_filters) =
+            Self::split_filter_targets(&config.source, &filters, &config.relations);
+        self.count_source(
+            &config.source,
+            &source_filters,
+            &relation_filters,
+            &config.relations,
+        )
+        .await
     }
 }
