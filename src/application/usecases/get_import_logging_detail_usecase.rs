@@ -311,6 +311,7 @@ impl GetImportLoggingDetailUsecase {
                 table,
                 column,
                 field.is_custom,
+                field.fetcher_field_key.as_deref(),
                 entity_table,
                 main,
                 sequential_config,
@@ -326,6 +327,7 @@ impl GetImportLoggingDetailUsecase {
                     table,
                     column,
                     field.is_custom,
+                    field.fetcher_field_key.as_deref(),
                     entity_table,
                     main,
                     sequential_config,
@@ -473,6 +475,7 @@ impl GetImportLoggingDetailUsecase {
         table: &str,
         column: &str,
         field_is_custom: bool,
+        custom_display_field: Option<&str>,
         entity_table: &str,
         main: &Value,
         sequential_config: &[StoredSequentialTable],
@@ -498,8 +501,11 @@ impl GetImportLoggingDetailUsecase {
                         .and_then(Value::as_str)
                         .is_some_and(|field_key| custom_field_keys_match(field_key, column))
                 })
-                .filter_map(custom_field_value)
-                .cloned()
+                .filter_map(|row| {
+                    custom_display_field
+                        .and_then(|field| Self::resolve_json_path(row.get("meta")?, field))
+                        .or_else(|| custom_field_value(row).cloned())
+                })
                 .collect::<Vec<_>>();
             return Self::collapse_values(values);
         }
@@ -643,6 +649,43 @@ mod tests {
         );
 
         assert_eq!(value, json!("RR-001"));
+    }
+
+    #[test]
+    fn displays_custom_field_meta_name_before_uuid() {
+        let field = StoredImportField {
+            header: "Work Location Group".to_string(),
+            column: "warehouse.ats_vacancy_custom_field:workLocationGroupId".to_string(),
+            select: None,
+            is_child: false,
+            fetcher_field_key: Some("name".to_string()),
+            is_custom: true,
+        };
+        let sequential = vec![StoredSequentialTable {
+            table: "warehouse.ats_vacancy_custom_field".to_string(),
+            fk_column: "parent_id".to_string(),
+            is_custom: true,
+        }];
+        let mut rows = HashMap::new();
+        rows.insert(
+            "warehouse.ats_vacancy_custom_field",
+            vec![json!({
+                "field_key": "workLocationGroupId",
+                "field_type": "UUID",
+                "value_id": "019f6e13-44e2-7a08-8c0d-19c0c1fbbb6d",
+                "meta": {"name": "Jakarta"}
+            })],
+        );
+
+        let value = GetImportLoggingDetailUsecase::resolve_field_value(
+            &field,
+            "warehouse.ats_vacancy_temporary",
+            &json!({}),
+            &sequential,
+            &rows,
+        );
+
+        assert_eq!(value, json!("Jakarta"));
     }
 
     #[test]

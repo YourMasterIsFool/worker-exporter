@@ -223,6 +223,19 @@ impl WarehouseAtsVacancyTemporaryLoader {
                 return;
             }
         }
+
+        if col_name == "job_function_ids" {
+            let value = val.as_array().map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|value| Uuid::parse_str(value).ok())
+                    .collect::<Vec<_>>()
+            });
+            b.push_bind(value);
+            return;
+        }
+
         match val {
             Value::Null => {
                 if Self::is_uuid_column(col_name) {

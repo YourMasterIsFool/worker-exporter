@@ -888,6 +888,34 @@ impl LsiImportVacancyV1 {
         Ok(())
     }
 
+    fn append_job_function_columns(
+        &self,
+        config: &ImportDatasetConfig,
+        result: &mut HashMap<String, ImportTableResult>,
+    ) -> anyhow::Result<()> {
+        let master_table = config.import_config.master_table.as_str();
+        let Some(job_position_meta) =
+            self.extract_master_value(result, master_table, "job_position_meta")
+        else {
+            return Ok(());
+        };
+
+        for (column, value_column) in [("job_function_ids", "value_id"), ("job_functions", "meta")]
+        {
+            if let Some(value) = Self::filterable_value(
+                job_position_meta.clone(),
+                Some("custom_fields"),
+                Some("jobFunctionId"),
+                Some(value_column),
+                true,
+            ) {
+                self.upsert_main_value(result, master_table, column, value)?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn insert_has_many_result(
         &self,
         result: &mut HashMap<String, ImportTableResult>,
@@ -1447,6 +1475,7 @@ impl LsiImportVacancyV1 {
         self.normalize_numeric_columns(config, &mut result)?;
 
         self.append_config_scope_columns(config, &mut result)?;
+        self.append_job_function_columns(config, &mut result)?;
         self.append_main_payload_columns(config, &mut result)?;
         self.append_publish_on_rows(config, &mut result)?;
         self.append_stage_rows(rows, config, &mut result).await?;
@@ -1552,5 +1581,26 @@ mod tests {
         );
 
         assert_eq!(value, Some(json!(["id1", "id2"])));
+    }
+
+    #[test]
+    fn extracts_job_position_custom_field_metadata() {
+        let value = LsiImportVacancyV1::filterable_value(
+            json!({
+                "custom_fields": [
+                    {"field_key": "jobFunctionId", "value_id": "id1", "meta": {"name": "Engineering"}},
+                    {"field_key": "jobFunctionId", "value_id": "id2", "meta": {"name": "Product"}}
+                ]
+            }),
+            Some("custom_fields"),
+            Some("jobFunctionId"),
+            Some("meta"),
+            true,
+        );
+
+        assert_eq!(
+            value,
+            Some(json!([{"name": "Engineering"}, {"name": "Product"}]))
+        );
     }
 }

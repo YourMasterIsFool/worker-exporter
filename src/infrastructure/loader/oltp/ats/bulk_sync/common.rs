@@ -239,6 +239,18 @@ impl<'a> OltpBulkTableLoader<'a> {
             return;
         }
 
+        if column_name == "job_function_ids" {
+            let values = value.as_array().map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|value| Uuid::parse_str(value).ok())
+                    .collect::<Vec<_>>()
+            });
+            builder.push_bind(values);
+            return;
+        }
+
         match value {
             Value::Null => {
                 if Self::is_uuid_column(column_name) {

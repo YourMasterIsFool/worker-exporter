@@ -34,6 +34,7 @@ impl VacancySyncFetcher {
         "created_by",
         "permission_keys",
         "job_functions",
+        "job_function_ids",
         "expired_date",
         "is_confidential",
         "headcount_quota",
