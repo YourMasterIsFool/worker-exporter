@@ -240,6 +240,8 @@ impl From<TypeDataEnum> for String {
 pub struct ImporterColumn {
     pub header: String,
     pub column: String,
+    #[serde(default)]
+    pub select: Option<String>,
     pub fetcher: Option<String>,
     #[serde(default, alias = "isCache")]
     pub is_cache: bool,
@@ -378,7 +380,18 @@ mod tests {
             "actor_id": "actor-id",
             "orchestrator_name": "IMPORT",
             "import_config": {
-                "fields": [],
+                "fields": [{
+                    "header": "Requirement Template",
+                    "column": "warehouse.ats_vacancy_temporary:recruitment_form_template_id|warehouse.ats_vacancy_custom_field:recruitment_form_template_id",
+                    "select": "warehouse.ats_vacancy_custom_field:recruitment_form_template_id:meta:name",
+                    "fetcher": "REQUIREMENT_TEMPLATE",
+                    "type_data": "UUID",
+                    "is_custom": true,
+                    "fetcher_field_filter": null,
+                    "fetcher_field_key": "name",
+                    "fetcher_key": "id",
+                    "casting": "Varchar"
+                }],
                 "chunk": 100,
                 "tenant_id": "tenant-id",
                 "group_id": "group-id",
@@ -412,6 +425,10 @@ mod tests {
         assert_eq!(
             job.rollback_config.as_ref().unwrap().pipeline,
             "CONFIG_ROLLBACK_PIPELINE"
+        );
+        assert_eq!(
+            serde_json::to_value(&job).unwrap()["import_config"]["fields"][0]["select"],
+            "warehouse.ats_vacancy_custom_field:recruitment_form_template_id:meta:name"
         );
         let aggregate_config = job.aggregate_config.unwrap();
         assert_eq!(aggregate_config.pipeline, "CANDIDATE_AGGREGATE");

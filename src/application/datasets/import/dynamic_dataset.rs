@@ -15,7 +15,7 @@ use crate::{
         },
         types::{CastingEnum, ImportDatasetConfig, ImportRow, WhereField},
     },
-    utils::value::calamine_to_json,
+    utils::{custom_field::parse_import_date, value::calamine_to_json},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -141,9 +141,7 @@ fn map_value_to_field(field_type: Option<TypeDataEnum>, val: &Value, cf: &mut Cu
         }
         Some(TypeDataEnum::Boolean) => cf.value_bool = val.as_bool(),
         Some(TypeDataEnum::Date) => {
-            cf.value_date = val
-                .as_str()
-                .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+            cf.value_date = val.as_str().and_then(parse_import_date);
         }
         Some(TypeDataEnum::Text) | None => {
             cf.value_text = value_to_text(val);

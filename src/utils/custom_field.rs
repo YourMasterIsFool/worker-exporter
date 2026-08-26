@@ -31,6 +31,13 @@ pub fn custom_field_keys_match(left: &str, right: &str) -> bool {
     normalize_custom_field_key(left) == normalize_custom_field_key(right)
 }
 
+pub fn parse_import_date(value: &str) -> Option<NaiveDate> {
+    let value = value.trim();
+    NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .ok()
+        .or_else(|| NaiveDate::parse_from_str(value, "%Y/%m/%d").ok())
+}
+
 /// The optional `key` in a custom-field unique rule is its business key.
 /// Use the column path only when the configuration does not supply one.
 pub fn resolve_custom_field_key(field: &ImporterColumn, fallback_column: &str) -> String {
@@ -197,9 +204,7 @@ pub fn resolve_custom_field_typed_value(
         }
         Some(TypeDataEnum::Boolean) => resolved.value_bool = value.as_bool(),
         Some(TypeDataEnum::Date) => {
-            resolved.value_date = value
-                .as_str()
-                .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
+            resolved.value_date = value.as_str().and_then(parse_import_date);
         }
         Some(TypeDataEnum::Text) | None => resolved.value_text = value_to_text(value),
     }
@@ -209,11 +214,13 @@ pub fn resolve_custom_field_typed_value(
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDate;
     use serde_json::json;
 
     use super::{
         custom_field_keys_match, custom_field_value, group_custom_field_values_by_parent,
-        index_custom_field_rows_by_parent_and_key, resolve_custom_field_typed_value,
+        index_custom_field_rows_by_parent_and_key, parse_import_date,
+        resolve_custom_field_typed_value,
     };
     use crate::core::traits::orchestrator::TypeDataEnum;
 
@@ -236,6 +243,14 @@ mod tests {
         let typed =
             resolve_custom_field_typed_value(Some(&TypeDataEnum::Uuid), &value, &meta, Some("id"));
         assert!(typed.value_id.is_some());
+    }
+
+    #[test]
+    fn parses_excel_slash_separated_date() {
+        assert_eq!(
+            parse_import_date("2026/01/10"),
+            NaiveDate::from_ymd_opt(2026, 1, 10)
+        );
     }
 
     #[test]

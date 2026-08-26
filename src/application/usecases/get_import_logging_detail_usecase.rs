@@ -305,6 +305,27 @@ impl GetImportLoggingDetailUsecase {
             .filter_map(|path| path.trim().split_once(':'))
             .collect::<Vec<_>>();
 
+        if field.is_custom && paths.len() > 1 {
+            if let Some((table, column)) = paths
+                .iter()
+                .find(|(table, _)| table.ends_with("custom_field"))
+            {
+                let value = Self::resolve_path_value(
+                    table,
+                    column,
+                    true,
+                    field.fetcher_field_key.as_deref(),
+                    entity_table,
+                    main,
+                    sequential_config,
+                    sequential_rows,
+                );
+                if !value.is_null() {
+                    return value;
+                }
+            }
+        }
+
         if paths.len() == 1 {
             let (table, column) = paths[0];
             return Self::resolve_path_value(
@@ -384,7 +405,10 @@ impl GetImportLoggingDetailUsecase {
         let Some(field_key) = parts.next() else {
             return Value::Null;
         };
-        let selected_path = parts.collect::<Vec<_>>();
+        let selected_path = parts
+            .flat_map(|part| part.split('.'))
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
         let rows = sequential_rows
             .get(table)
             .map(Vec::as_slice)
@@ -689,6 +713,43 @@ mod tests {
     }
 
     #[test]
+    fn displays_custom_meta_for_combined_main_and_custom_columns() {
+        let field = StoredImportField {
+            header: "Requirement Template".to_string(),
+            column: "warehouse.ats_vacancy_temporary:recruitment_form_template_id|warehouse.ats_vacancy_custom_field:recruitment_form_template_id".to_string(),
+            select: None,
+            is_child: false,
+            fetcher_field_key: Some("name".to_string()),
+            is_custom: true,
+        };
+        let sequential = vec![StoredSequentialTable {
+            table: "warehouse.ats_vacancy_custom_field".to_string(),
+            fk_column: "parent_id".to_string(),
+            is_custom: true,
+        }];
+        let mut rows = HashMap::new();
+        rows.insert(
+            "warehouse.ats_vacancy_custom_field",
+            vec![json!({
+                "field_key": "recruitment_form_template_id",
+                "field_type": "UUID",
+                "value_id": "019f5aa3-4853-7ae0-afc1-52f9f76565b1",
+                "meta": {"name": "Template Templar"}
+            })],
+        );
+
+        let value = GetImportLoggingDetailUsecase::resolve_field_value(
+            &field,
+            "warehouse.ats_vacancy_temporary",
+            &json!({"recruitment_form_template_id": "019f5aa3-4853-7ae0-afc1-52f9f76565b1"}),
+            &sequential,
+            &rows,
+        );
+
+        assert_eq!(value, json!("Template Templar"));
+    }
+
+    #[test]
     fn joins_selected_child_values() {
         let mut rows = HashMap::new();
         rows.insert(
@@ -771,8 +832,16 @@ mod tests {
             &json!({}),
             &rows,
         );
+        let dot_meta = GetImportLoggingDetailUsecase::resolve_selected_value(
+            "warehouse.ats_vacancy_custom_field:workLocationGroupId:meta.name",
+            true,
+            "warehouse.ats_vacancy_temporary",
+            &json!({}),
+            &rows,
+        );
 
         assert_eq!(meta, json!("bagus"));
+        assert_eq!(dot_meta, json!("bagus"));
         assert_eq!(value_text, json!("fallback"));
     }
 }
