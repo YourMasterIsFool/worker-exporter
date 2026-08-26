@@ -107,11 +107,29 @@ impl Orchestrator for ExportOrchestrator {
         let dynamic_filters = dynamic_export_config
             .as_ref()
             .map(|config| Self::dynamic_filters(job, config));
-        let (total_count, total_chunk) = match dynamic_export_config.as_ref() {
+        if config.chunk <= 0 {
+            anyhow::bail!("export chunk must be greater than zero");
+        }
+        let job_filter = dynamic_filters.clone().unwrap_or_else(|| {
+            let mut filters = vec![WhereField {
+                field: "tenant_id".into(),
+                operator: "=".into(),
+                value: Some(job.tenant_id.clone()),
+                values: None,
+                casting: Some(CastingEnum::Uuid),
+            }];
+            if let Some(extra_filters) = &job.filters {
+                filters.extend(extra_filters.clone());
+            }
+            filters
+        });
+        let dataset_key = dynamic_export_config
+            .as_ref()
+            .map(|config| config.dataset.as_str())
+            .unwrap_or(&config.dataset);
+        let (total_count, total_chunk, track_chunk_progress) = match dynamic_export_config.as_ref()
+        {
             Some(config) => {
-                if config.chunk <= 0 {
-                    anyhow::bail!("dynamic export chunk must be greater than zero");
-                }
                 let total_count = self
                     .dataset
                     .get(&config.dataset)?
@@ -121,9 +139,24 @@ impl Orchestrator for ExportOrchestrator {
                     )
                     .await?;
                 let total_chunk = total_count.saturating_add(config.chunk - 1) / config.chunk;
-                (total_count, total_chunk)
+                (total_count, total_chunk, true)
             }
-            None => (0, 0),
+            None => match self
+                .dataset
+                .get(dataset_key)?
+                .count(&crate::core::traits::load::LoadEnum::Select(
+                    Some(job_filter.clone()),
+                    None,
+                ))
+                .await?
+            {
+                Some(total_count) => (
+                    total_count,
+                    total_count.saturating_add(config.chunk - 1) / config.chunk,
+                    true,
+                ),
+                None => (0, 0, false),
+            },
         };
 
         let logging_entity = LoggingEntity {
@@ -219,24 +252,7 @@ impl Orchestrator for ExportOrchestrator {
             })
             .await??;
 
-            let dataset_key = dynamic_export_config
-                .as_ref()
-                .map(|config| config.dataset.as_str())
-                .unwrap_or(&config.dataset);
             let dataset = self.dataset.get(dataset_key)?;
-            let job_filter = dynamic_filters.clone().unwrap_or_else(|| {
-                let mut filters = vec![WhereField {
-                    field: "tenant_id".into(),
-                    operator: "=".into(),
-                    value: Some(job.tenant_id.clone()),
-                    values: None,
-                    casting: Some(CastingEnum::Uuid),
-                }];
-                if let Some(extra_filters) = &job.filters {
-                    filters.extend(extra_filters.clone());
-                }
-                filters
-            });
             let mut cursor: Option<String> = match dynamic_export_config.as_ref() {
                 Some(_) => None,
                 None => Some(
@@ -257,6 +273,7 @@ impl Orchestrator for ExportOrchestrator {
                 &mut cursor,
                 config.chunk,
                 dynamic_export_config.as_ref(),
+                track_chunk_progress,
             )
             .await;
 

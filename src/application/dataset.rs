@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use crate::application::datasets::export::{
     ats::{
-        applicant_dataset::ApplicantDataset, lsi_candidate_dataset::LsiCandidateDataset,
+        applicant_dataset::ApplicantDataset, candidate_dataset::CandidateDataset,
+        lsi_candidate_dataset::LsiCandidateDataset,
         lsi_reference_check_dataset::LsiReferenceCheckDataset,
     },
     dynamic_export_dataset::DynamicExportDataset,
@@ -50,6 +51,14 @@ pub fn build_dataset_registry(
             grpc_service: grpc_service.clone(),
         }),
     );
+    registry
+        .register(
+            "CANDIDATE_DATASET",
+            Arc::new(CandidateDataset {
+                client: ats_db.clone(),
+            }),
+        )
+        .expect("register candidate dataset");
     registry
         .register(
             "lsi_reference_check_dataset",

@@ -35,6 +35,12 @@ pub trait Dataset {
 
     async fn get_min_cursor(&self, filters: Option<Vec<WhereField>>) -> anyhow::Result<String>;
 
+    /// Returns a snapshot count when a static dataset can provide one.
+    /// `None` preserves the legacy behavior for datasets that do not support totals.
+    async fn count(&self, _strategy_enum: &LoadEnum) -> anyhow::Result<Option<i64>> {
+        Ok(None)
+    }
+
     async fn configure_export(
         &self,
         _fields: &[ExporterColumn],

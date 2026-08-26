@@ -29,6 +29,7 @@ impl ExportRunner {
         cursor: &mut Option<String>,
         limit: i64,
         dynamic_export_config: Option<&DynamicExportConfig>,
+        track_chunk_progress: bool,
     ) -> anyhow::Result<()>
     where
         D: Dataset + Send + Sync + ?Sized,
@@ -103,7 +104,7 @@ impl ExportRunner {
             logging
                 .update_cursor_and_processed_count(id, cursor.clone(), processed_count)
                 .await?;
-            if dynamic_export_config.is_some() {
+            if track_chunk_progress {
                 logging.update_current_chunk(id, current_chunk).await?;
             }
 
