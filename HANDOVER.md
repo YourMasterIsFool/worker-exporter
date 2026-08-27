@@ -1,3 +1,216 @@
+# Buku Pegangan Mini: Import & Export (Bahasa Bayi)
+
+Dokumen panjang ada di bawah. Kalau baru mulai, baca bagian kecil ini dulu.
+
+## Kamus bayi
+
+| Kata | Artinya |
+| --- | --- |
+| Excel | Makanan yang mau kita baca. |
+| Dataset | Otak yang membaca Excel dan menyusun datanya. |
+| Loader warehouse | Tangan yang menyimpan hasil baca ke tabel sementara. |
+| Fetcher | Mata yang mencari pilihan, misalnya nama Position lalu dapat ID-nya. |
+| Sync | Kurir yang memindahkan data dari warehouse ke ATS/OLTP. |
+| Bulk loader OLTP | Tangan terakhir yang menyimpan data ke ATS. |
+| Registry | Buku alamat: nama di config harus didaftarkan di sini. |
+
+Jalan datanya begini:
+
+```text
+Excel -> Import Dataset -> Import Pipeline -> Loader Warehouse -> tabel temporary
+                                                          |
+                                               (auto_sync: true)
+                                                          v
+temporary source -> Sync Dataset -> Sync Aggregator -> Bulk Loader OLTP -> ATS
+```
+
+## Kalau mau buat import baru
+
+Contoh nama fitur: `MY_FEATURE`. Jangan mulai dari nol; salin pola vacancy yang sudah hidup.
+
+1. **Buat tempat tidur data sementara (loader warehouse).**
+
+   - File contoh: `src/infrastructure/loader/warehouse/temporary/ats/warehouse_ats_vacancy_temporary.rs`
+   - File baru biasa diletakkan di: `src/infrastructure/loader/warehouse/temporary/<domain>/warehouse_<nama>_temporary.rs`
+   - Implement trait `ImportLoadPersitence`.
+   - Bila membuat tabel/kolom baru, buat migration di `migrations/` juga.
+   - Daftarkan nama loader di `src/application/import/import_registry.rs`.
+
+   Contoh nama yang dipakai config:
+
+   ```rust
+   "WAREHOUSE_MY_FEATURE_TEMPORARY"
+   ```
+
+2. **Buat otak pembaca Excel (import dataset).**
+
+   - File contoh: `src/application/datasets/import/ats/lsi_import_vacancy_v1.rs`
+   - File baru: `src/application/datasets/import/<domain>/<nama>_import_v1.rs`
+   - Implement trait `ImporterDatasetV1` dari `src/core/traits/dataset_trait.rs`.
+   - Masukkan module ke `src/application/datasets/import/<domain>/mod.rs`.
+   - Daftarkan nama dataset di `src/application/dataset.rs`, fungsi `build_importer_dataset_registry_v1`.
+
+   Contoh nama dataset:
+
+   ```rust
+   "MY_FEATURE_IMPORT_V1"
+   ```
+
+3. **Pakai pipeline yang sudah ada bila alurnya biasa.**
+
+   Untuk import ke temporary warehouse, cukup pakai:
+
+   ```text
+   src/infrastructure/pipeline/ats/vacancy_import_pipeline.rs
+   pipeline config: "vacancy_import_pipeline"
+   ```
+
+   Pipeline ini memilih loader dari `import_config.loader`. Buat pipeline baru hanya bila cara menyimpannya memang berbeda. Jika membuat baru, daftarkan di `src/application/pipelines/pipeline_import_registry.rs`.
+
+4. **Buat fetcher jika Excel perlu memilih data lain.**
+
+   Misalnya user mengetik `Store A`, tetapi database butuh UUID `work_location_id`.
+
+   - Source fetcher: `src/infrastructure/source/oltp/<domain>/...` atau `src/infrastructure/ingestion/...`
+   - Implement trait `DataFetcherJson`.
+   - Daftarkan nama fetcher di `src/application/fetch_source_regitry.rs`.
+   - Nama itu dipakai oleh `fields[].fetcher` di tenant config.
+
+   Contoh nyata: `JOB_POSITION`, `GENERAL_ORGANIZATION`, `EMPLOYEE`, dan `REQUIREMENT_TEMPLATE`.
+
+5. **Isi tenant config. Ini tombol yang menyambungkan semuanya.**
+
+   Untuk vacancy, nama yang benar adalah:
+
+   ```json
+   {
+     "orchestrator_name": "IMPORT",
+     "sync_config": {
+       "chunk": 100,
+       "sync_aggregate": "LSI_VACANCY_SYNC"
+     },
+     "import_config": {
+       "dataset": "LSI_IMPORT_VACANCY_V1",
+       "loader": "WAREHOUSE_ATS_VACANCY_TEMPORARY",
+       "pipeline": "vacancy_import_pipeline",
+       "master_table": "warehouse.ats_vacancy_temporary",
+       "primary_column": "id",
+       "auto_sync": true,
+       "start_row": 2,
+       "fields": []
+     }
+   }
+   ```
+
+   Isi `dataset`, `loader`, dan `pipeline` harus **persis sama** dengan nama yang didaftarkan di registry. Huruf besar-kecil juga penting.
+
+### Cara menulis satu kolom config
+
+**Kolom teks biasa**:
+
+```json
+{
+  "column": "warehouse.ats_vacancy_temporary:name",
+  "header": "Position Alias*",
+  "is_child": false,
+  "is_custom": false,
+  "type_data": "TEXT",
+  "template": { "value": "Contoh", "value_type": "text" }
+}
+```
+
+**Kolom pilihan yang masuk ke custom field**: Excel menampilkan `name`, sistem menyimpan `id` dan `meta`.
+
+```json
+{
+  "column": "warehouse.ats_vacancy_custom_field:workLocationGroupId",
+  "header": "Work Location Group*",
+  "select": "warehouse.ats_vacancy_custom_field:workLocationGroupId:meta:name",
+  "fetcher": "GENERAL_ORGANIZATION",
+  "fetcher_key": "id",
+  "fetcher_field_key": "name",
+  "is_child": true,
+  "is_custom": true,
+  "type_data": "UUID",
+  "template": {
+    "fetcher": "GENERAL_ORGANIZATION",
+    "value": null,
+    "value_type": "select"
+  }
+}
+```
+
+Aturan kecil tapi penting:
+
+- Custom field **wajib** punya `type_data`: `TEXT`, `UUID`, `NUMBER`, `BOOLEAN`, atau `DATE`. Jangan kosong; ATS akan menolak enum kosong.
+- Untuk menampilkan nama custom field, pakai `select` dengan bentuk `table:field_key:meta:name`.
+- `DATE` menerima `2026-01-10` dan `2026/01/10` dari Excel.
+- Jangan membuat `field_key` yang sama dua kali dalam `fields`; cukup ubah field yang sudah ada.
+
+## Kalau import tadi harus masuk ke ATS (sync)
+
+Untuk vacancy, semua bagian ini sudah ada. Jika membuat entity baru, buat pasangan yang sama.
+
+1. **Temporary source** supaya sync bisa membaca warehouse.
+
+   - File contoh: `src/infrastructure/source/warehouse/temporary/ats/ats_vacancy_temporary.rs`
+   - Daftarkan di `src/application/ingestion/source_registry.rs`.
+   - Jika perlu dibaca sebagai child/fetcher juga, daftarkan di `src/application/fetch_source_regitry.rs`.
+
+2. **Sync dataset** untuk membentuk data per tabel.
+
+   - File contoh: `src/application/datasets/import/lsi_vacancy_sync_dataset.rs`
+   - Implement trait `SyncDataset`.
+   - Daftarkan di `src/application/dataset.rs`, fungsi `build_sync_dataset_registry`.
+
+3. **Sync aggregator** untuk memilih source, dataset, dan urutan bulk loader.
+
+   - File contoh: `src/application/sync/ats/vacancy.rs`
+   - Implement trait `SyncAggregator`.
+   - Daftarkan di `src/application/sync_aggregator_registry.rs`.
+   - Isi nama aggregator itu pada `sync_config.sync_aggregate`.
+
+4. **Bulk loader OLTP** untuk memasukkan data ke tabel ATS.
+
+   - Folder: `src/infrastructure/loader/oltp/ats/bulk_sync/`
+   - Contoh: `bulk_vacancy.rs`, `bulk_custom_field.rs`, dan `bulk_pic.rs`.
+   - Implement trait `BulkLoaderTrait`.
+   - Daftarkan di `src/application/bulk_loader_registry.rs`.
+   - Masukkan key loader itu ke daftar `LOADERS` di sync aggregator.
+
+## Kalau mau buat export baru
+
+Versi kecilnya begini:
+
+1. Buat dataset di `src/application/datasets/export/<domain>/<nama>_dataset.rs` dan implement `Dataset`.
+2. Daftarkan dataset di `src/application/dataset.rs`, fungsi `build_dataset_registry`.
+3. Jika dataset perlu relasi/pilihan tambahan, buat fetcher lalu daftar di `src/application/fetch_source_regitry.rs`.
+4. Tenant config mengisi `export_config.dataset` dengan key dataset tadi dan memilih `format`: `csv`, `excel`, atau `excel_rs`.
+
+```json
+{
+  "orchestrator_name": "EXPORT",
+  "export_config": {
+    "dataset": "MY_FEATURE_EXPORT",
+    "format": "excel_rs",
+    "chunk": 100,
+    "fields": []
+  }
+}
+```
+
+## Checklist bayi sebelum bilang selesai
+
+- [ ] Loader warehouse ada dan sudah terdaftar.
+- [ ] Dataset implement trait yang benar dan sudah terdaftar.
+- [ ] Fetcher ada dan sudah terdaftar bila ada kolom `fetcher`.
+- [ ] Nama `dataset`, `loader`, `pipeline`, `fetcher`, dan `sync_aggregate` di config sama persis dengan registry.
+- [ ] Semua custom field punya `type_data`.
+- [ ] Jika `auto_sync: true`, temporary source, sync dataset, sync aggregator, dan bulk loader OLTP sudah tersambung.
+- [ ] Jalankan `cargo check`, lalu coba satu baris Excel dulu.
+
+---
+
 # Worker Exporter — Architecture & Handover
 
 Dokumen ini adalah panduan handover end-to-end untuk runtime `worker-exporter` per 25 Agustus 2026. Isi diambil dari implementasi yang aktif di `src/`, bukan dari rancangan ideal atau dokumentasi lama.
