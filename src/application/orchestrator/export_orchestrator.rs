@@ -28,6 +28,7 @@ use crate::{
         entity::{LoggingEntity, LoggingStatus, LoggingType},
         repo::LoggingRepo,
     },
+    utils::remove_file,
 };
 
 #[derive(Debug, Serialize)]
@@ -357,9 +358,9 @@ impl Orchestrator for ExportOrchestrator {
 
             // remove temporary excel after upload into grpc
 
-            // if let Err(err) = remove_file(&file_path) {
-            //     tracing::warn!("failed to remove file: {:?}", err);
-            // }
+            if let Err(err) = remove_file(&file_path) {
+                tracing::warn!("failed to remove file: {:?}", err);
+            }
         }
         self.logging.mark_as_completed(msg_id).await?;
 
